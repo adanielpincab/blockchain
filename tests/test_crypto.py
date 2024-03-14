@@ -8,7 +8,7 @@ class SignAndVerify(unittest.TestCase):
         self.priv, self.pub = crypto.generate_key_pair()
     
     def test_serialization(self):
-        crypto.private_to_pem(self.priv, "mock.pem", "mock1234")
+        crypto.private_to_pem_file(self.priv, "mock.pem", "mock1234")
         crypto.private_from_pem("mock.pem", "mock1234")
 
         crypto.public_deserialized(
@@ -20,11 +20,14 @@ class SignAndVerify(unittest.TestCase):
         
         os.remove("mock.pem")
     
-    def test_signature(self):
+    def test_sign_verify(self):
         signature = crypto.sign("mensaje de prueba".encode(), self.priv)
         print("Signed: ", signature)
-        crypto.verify(signature, "mensaje de prueba".encode(), self.pub)
-
-        with self.assertRaises(crypto.InvalidSignature):
-            bad_signature = signature[:3] + '0' + signature[4:]
+        self.assertTrue(
+            crypto.verify(signature, "mensaje de prueba".encode(), self.pub)
+        )
+        
+        bad_signature = signature[:3] + '0' + signature[4:]
+        self.assertFalse(
             crypto.verify(bad_signature, "mensaje de prueba".encode(), self.pub)
+        )

@@ -1,0 +1,6 @@
+.vscode
+.venv
+*.pem
+__pycache__
+.pytest_cache
+.coverage

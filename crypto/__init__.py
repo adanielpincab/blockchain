@@ -62,10 +62,11 @@ def verify(hex_signature, message, public_key):
             ),
             hashes.SHA256()
         )
+        return True
     except InvalidSignature:
-        raise InvalidSignature
+        return False
 
-def private_to_pem(private_key, pem_file, password):
+def private_to_pem_file(private_key, pem_file, password):
     password = password.encode()
     key_pem_bytes = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,  # PEM Format is specified
@@ -76,6 +77,16 @@ def private_to_pem(private_key, pem_file, password):
     # Filename could be anything
     key_pem_path = Path(pem_file)
     key_pem_path.write_bytes(key_pem_bytes)
+
+# TODO: esto funciona o no ? UNENCRYPTED ??
+def private_to_pem(private_key):
+    password = password.encode()
+    key_pem_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,  # PEM Format is specified
+        format=serialization.PrivateFormat.PKCS8,
+    )
+
+    return key_pem_bytes.encode('utf-8')
 
 def private_from_pem(pem_file, password):
     password = password.encode()

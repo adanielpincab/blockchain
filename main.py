@@ -1,6 +1,7 @@
-import crypto
+import blockchain
 
-priv, pub = crypto.generate_key_pair()
+a = blockchain.Address()
 
-print(priv)
-print(pub)
+print(a.__dict__)
+
+print(blockchain.Transaction('a', 'b', 10).__dict__)
