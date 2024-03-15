@@ -22,7 +22,6 @@ class SignAndVerify(unittest.TestCase):
     
     def test_sign_verify(self):
         signature = crypto.sign("mensaje de prueba".encode(), self.priv)
-        print("Signed: ", signature)
         self.assertTrue(
             crypto.verify(signature, "mensaje de prueba".encode(), self.pub)
         )

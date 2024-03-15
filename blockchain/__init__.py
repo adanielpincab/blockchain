@@ -3,7 +3,6 @@ from time import time
 from hashlib import sha256
 from json import loads, dumps
 import sqlite3
-from math import ceil
 
 class Transaction:
     def __init__(self, addrFrom: str, addrTo: str, amount: int, fee=0):
@@ -111,7 +110,6 @@ class Merkle:
     def recalc(self):
         self.levels = [tuple(self.l)] # reset, first level
         while len(self.levels[-1]) > 1:
-            print(self.levels[-1])
             nextLevel = []
             pair = []
             for i in self.levels[-1]:
@@ -130,23 +128,24 @@ class Merkle:
         return self.levels[-1][0]
     
     def proof(self, hash):
-        res = [
-            ('hash', hash)
-        ]
+        res = {
+            'root': self.root(),
+            'path':[]
+        }
         for l in range(len(self.levels[:-1])):
             level = self.levels[l]
             ind = level.index(hash)
             if (ind == len(level)-1) and (len(level)%2 != 0):
                 continue # last hash with no pairs just goes up to the next level
             if ind%2 == 0:
-                res.append(
+                res['path'].append(
                     ('right', level[ind+1])
                 )
             else:
-                res.append(
+                res['path'].append(
                     ('left', level[ind-1])
                 )
-            hash = self.levels[l+1][ceil(ind/2)-1]
+            hash = self.levels[l+1][int(ind/2)]
         return res
             
 
