@@ -1,5 +1,6 @@
 import unittest
 from blockchain import *
+
 class TestAddressesTransactions(unittest.TestCase):
     @classmethod
     def setUpClass(self):
@@ -45,24 +46,44 @@ class TestAddressesTransactions(unittest.TestCase):
         m.add('3891f13300b85e89d403504b4c26abe3adf5f39420a2d111059423cb25b33b86')
         self.assertEqual(
             m.root(), 
-            '26086b9533dc45f23dfd7f4fe6cadf4a82ec83b310a49b828141a063eea0ea8e'
+            'dd7ebdf165fe269f1afc094286c4b438f5f96150db60d9c79d305059822819cc'
         )
         m.add('445c06f8335048bf3af883b047f79163c70083de3874e79ba1f7e621e0073579')
         m.add('90984cc7ba5a96b3dcc55921ac4c7d7b344fcc37947a003cae10c475f4439377')
         m.add('f7c3cc7a2377dabee2d71a54e5b1ca93dae1006887d0747c0978e051a948fc15')
         self.assertEqual(
             m.root(), 
-            '5c9c2ba5982276088d42e30ff2c7f9f5093336a5684dc8ce18788cc8e7a7805c'
+            'ca04ce6d7c2dfdba78c403305c8e7f61ed7050513db01408c706ca21de2eb850'
         )
         
+        print(m.proof('445c06f8335048bf3af883b047f79163c70083de3874e79ba1f7e621e0073579'))
         self.assertEqual(
             m.proof('445c06f8335048bf3af883b047f79163c70083de3874e79ba1f7e621e0073579'),
             {
-                'root': '5c9c2ba5982276088d42e30ff2c7f9f5093336a5684dc8ce18788cc8e7a7805c', 
-                'path': [
-                    ('right', '90984cc7ba5a96b3dcc55921ac4c7d7b344fcc37947a003cae10c475f4439377'), 
-                    ('left', '26086b9533dc45f23dfd7f4fe6cadf4a82ec83b310a49b828141a063eea0ea8e'), 
-                    ('right', 'f7c3cc7a2377dabee2d71a54e5b1ca93dae1006887d0747c0978e051a948fc15')
-                ]
+                    'root':'ca04ce6d7c2dfdba78c403305c8e7f61ed7050513db01408c706ca21de2eb850', 
+                    'path': [
+                        ('left', '3891f13300b85e89d403504b4c26abe3adf5f39420a2d111059423cb25b33b86'), 
+                        ('right', '95dfe5def74e4c82811b7adbebcc111b3ae82d17cd905c920bae50867448225e'), 
+                        ('right', 'f7c3cc7a2377dabee2d71a54e5b1ca93dae1006887d0747c0978e051a948fc15')
+                    ]
+            }
+        )
+
+        # same result, even with different order of input
+        m2 = Merkle()
+        m2.add('445c06f8335048bf3af883b047f79163c70083de3874e79ba1f7e621e0073579')
+        m2.add('b221d9dbb083a7f33428d7c2a3c3198ae925614d70210e28716ccaa7cd4ddb79')
+        m2.add('90984cc7ba5a96b3dcc55921ac4c7d7b344fcc37947a003cae10c475f4439377')
+        m2.add('3891f13300b85e89d403504b4c26abe3adf5f39420a2d111059423cb25b33b86')
+        m2.add('f7c3cc7a2377dabee2d71a54e5b1ca93dae1006887d0747c0978e051a948fc15')
+        self.assertEqual(
+            m2.proof('445c06f8335048bf3af883b047f79163c70083de3874e79ba1f7e621e0073579'),
+            {
+                    'root':'ca04ce6d7c2dfdba78c403305c8e7f61ed7050513db01408c706ca21de2eb850', 
+                    'path': [
+                        ('left', '3891f13300b85e89d403504b4c26abe3adf5f39420a2d111059423cb25b33b86'), 
+                        ('right', '95dfe5def74e4c82811b7adbebcc111b3ae82d17cd905c920bae50867448225e'), 
+                        ('right', 'f7c3cc7a2377dabee2d71a54e5b1ca93dae1006887d0747c0978e051a948fc15')
+                    ]
             }
         )

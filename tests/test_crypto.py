@@ -26,7 +26,6 @@ class SignAndVerify(unittest.TestCase):
             crypto.verify(signature, "mensaje de prueba".encode(), self.pub)
         )
         
-        bad_signature = signature[:3] + '0' + signature[4:]
         self.assertFalse(
-            crypto.verify(bad_signature, "mensaje de prueba".encode(), self.pub)
+            crypto.verify(signature, "mensaje de prueba TAMPERED".encode(), self.pub)
         )

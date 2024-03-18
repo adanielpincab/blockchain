@@ -96,6 +96,9 @@ class Merkle:
     def __init__(self, _list=None):
         self.l = _list
         self.levels = []
+
+        if _list:
+            self.recalc()
     
     def add(self, item):
         '''
@@ -105,6 +108,7 @@ class Merkle:
             self.l = [item]
         else:
             self.l.append(item)
+        self.l.sort()
         self.recalc()
     
     def recalc(self):
@@ -147,11 +151,15 @@ class Merkle:
                 )
             hash = self.levels[l+1][int(ind/2)]
         return res
+    
+    def __iter__(self):
+        return self.l.__iter__()
             
 
 class Block:
     def __init__(self, prevHash=None):
-        self.transactions = []
+        self.transactions = Merkle()
+        self.transactionsRoot = None
         self.timestamp = int(time())
         self.nonce = 0
         self.miner = None
@@ -160,8 +168,11 @@ class Block:
     def addTransaction(self, transaction):
         if type(transaction) == Transaction:
             transaction = transaction.hash()
-        
-        self.transactions.append(transaction)
+        self.transactions.add(transaction)
+        self.transactionsRoot = self.transactions.root()
+    
+    def transactionProofs(self):
+        pass
     
     def hash(self):
         return sha256(str(
