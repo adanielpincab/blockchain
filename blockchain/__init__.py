@@ -2,6 +2,7 @@ import crypto
 from time import time
 from hashlib import sha256
 from json import loads, dumps
+from math import floor, inf
 import sqlite3
 
 class Transaction:
@@ -24,22 +25,6 @@ class Transaction:
             ]
         ).encode()).hexdigest()
 
-    def preHash(self):
-        '''
-        Binary transaction information for inserting the
-        transaction into a merkle tree.
-        Generates same hash in the tree than self.hash()
-        '''
-        return str(
-            [
-                self.addrFrom,
-                self.addrTo,
-                self.amount,
-                self.fee,
-                self.timestamp
-            ]
-        ).encode()
-    
     def verify(self):
         return (
             crypto.verify(
@@ -100,18 +85,18 @@ class Merkle:
         if _list:
             self.recalc()
     
-    def add(self, item):
+    def add(self, item: str):
         '''
-        Items ARE EXPECTED TO BE HASHED before adding the to the list
+        Items ARE EXPECTED TO BE HASHED before being added to the list
         '''
         if not self.l:
             self.l = [item]
         else:
             self.l.append(item)
-        self.l.sort()
         self.recalc()
     
     def recalc(self):
+        self.l.sort()
         self.levels = [tuple(self.l)] # reset, first level
         while len(self.levels[-1]) > 1:
             nextLevel = []
@@ -154,7 +139,6 @@ class Merkle:
     
     def __iter__(self):
         return self.l.__iter__()
-            
 
 class Block:
     def __init__(self, prevHash=None):
@@ -171,23 +155,66 @@ class Block:
         self.transactions.add(transaction)
         self.transactionsRoot = self.transactions.root()
     
-    def transactionProofs(self):
-        pass
-    
     def hash(self):
-        return sha256(str(
-            self.__dict__
-        ).encode()).hexdigest()
+        return sha256(str([
+            self.transactionsRoot,
+            self.timestamp,
+            self.nonce,
+            self.miner,
+            self.prevHash
+        ]).encode()).hexdigest()
     
+    def to_json(self):
+        return dumps({
+            'transactionsRoot': self.transactionsRoot,
+            'timestamp': self.timestamp,
+            'nonce': self.nonce,
+            'miner': self.miner,
+            'prevHash': self.prevHash
+        })
+    
+    @classmethod
+    def from_json(self, json):
+        data = loads(json)
+        b = Block()
+        b.transactionsRoot = data['transactionsRoot']
+        b.timestamp = data['timestamp']
+        b.nonce = data['nonce']
+        b.miner = data['miner']
+        b.prevHash = data['prevHash']
+
+        return b
+
+'''
+DIFFICULTY OF THE BLOCKCHAIN.
+Automatically adapted depending on the last block's timestamp.
+The more time has passed, the easier the difficulty gets.
+'''
+def difficulty(timeLast, timeNew):
+    if (timeNew - timeLast) <= 30:
+        return inf
+    return floor(500/ ((timeNew-timeLast) - 30) )
+
 class BlockChain:
-    def __init__(self, db_name):
-        self.db_con = sqlite3.connect(db_name)
-        self.db_cur = self.db_con.cursor()
-        with open("setup.sql", 'r') as f:
-            self.db_cur.execute(f.read())
+    def __init__(self, dbfilename):
+        self.con = sqlite3.connect(dbfilename)
+        self.cur = self.con.cursor()
+        with open('setup.sql', 'r') as setup:
+            self.cur.execute(setup.read())
+            setup.close()
+        self.verify()
     
     def length(self):
-        return len(self.blocks)
+        # TODO return last block id
+        pass
+    
+    def verify(self):
+        # TODO verify blockchain on load
+        pass
+
+    def valid(self, newBlock: Block):
+        # TODO verify if a block is valid
+        pass
 
     def prevHash(self):
         return self.blocks[0].prevHash()

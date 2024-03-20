@@ -87,3 +87,17 @@ class TestAddressesTransactions(unittest.TestCase):
                     ]
             }
         )
+
+class TestBlockchain(unittest.TestCase):
+    def text_block(self):
+        b = Block.from_json("""
+                            {
+                                'transactionsRoot': None,
+                                'timestamp': 1710764231,
+                                'nonce': 907567,
+                                'miner': None,
+                                'prevHash': None
+                            }
+                            """)
+        self.assertEqual(b.hash(), '00000ce24ef39a5bee5e075a88b4b9beae79299e5d8fdf453cbf2c69fd7735c7')
+        

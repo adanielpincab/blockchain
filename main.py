@@ -1,7 +1,8 @@
 import blockchain
+from time import time, sleep
 
-a = blockchain.Address()
+check = int(time())
 
-print(a.__dict__)
-
-print(blockchain.Transaction('a', 'b', 10).__dict__)
+while True:
+    print(int(time()) - check, blockchain.difficulty(check, int(time())))
+    sleep(1)
