@@ -184,6 +184,22 @@ class Block:
         b.prevHash = data['prevHash']
 
         return b
+    
+    @classmethod
+    def from_database(self, db_tuple):
+        '''
+        CREATE TABLE IF NOT EXISTS Block (
+            transactions_root TEXT,
+            timestamp INTEGER, 
+            nonce INTEGER,
+            miner TEXT,
+            prevhash TEXT
+        );
+        '''
+        b = Block()
+        b.transactionsRoot, b.timestamp,
+        b.nonce, b.miner, b.prevHash = db_tuple
+        return b
 
 '''
 DIFFICULTY OF THE BLOCKCHAIN.
@@ -199,8 +215,8 @@ class BlockChain:
     def __init__(self, dbfilename):
         self.con = sqlite3.connect(dbfilename)
         self.cur = self.con.cursor()
-        with open('setup.sql', 'r') as setup:
-            self.cur.execute(setup.read())
+        with open('blockchain_setup.sql', 'r') as setup:
+            self.cur.executescript(setup.read())
             setup.close()
         self.verify()
     
@@ -209,7 +225,11 @@ class BlockChain:
         pass
     
     def verify(self):
-        # TODO verify blockchain on load
+        self.cur.execute('''SELECT * FROM Block ORDER BY ROWID''')
+        blocks = self.cur.fetchall()
+
+        if len(blocks) == 0:
+            self.cur.execute('''''')
         pass
 
     def valid(self, newBlock: Block):
