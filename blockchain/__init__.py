@@ -6,7 +6,13 @@ from math import floor, inf
 import sqlite3
 
 class Transaction:
-    def __init__(self, addrFrom: str, addrTo: str, amount: int, fee=0):
+    def __init__(
+            self, 
+            addrFrom: str, 
+            addrTo: str, 
+            amount: int, 
+            fee=0
+        ):
         self.addrFrom = addrFrom
         self.addrTo = addrTo
         self.amount = amount
@@ -35,7 +41,10 @@ class Transaction:
                 )
             )
             and
-            (Address.generate_blockchain_address(self.signature[0]) == self.addrFrom)
+            (
+                Address.generate_blockchain_address(self.signature[0]) 
+                == self.addrFrom
+            )
             )
 
     def to_json(self):
@@ -125,7 +134,8 @@ class Merkle:
             level = self.levels[l]
             ind = level.index(hash)
             if (ind == len(level)-1) and (len(level)%2 != 0):
-                continue # last hash with no pairs just goes up to the next level
+                # last hash with no pairs just goes up to the next level
+                continue
             if ind%2 == 0:
                 res['path'].append(
                     ('right', level[ind+1])
@@ -173,6 +183,16 @@ class Block:
             'prevHash': self.prevHash
         })
     
+    def to_tuple(self):
+        return (
+            self.transactionsRoot,
+            self.timestamp,
+            self.nonce,
+            self.miner,
+            self.prevHash,
+            self.hash()
+        )
+
     @classmethod
     def from_json(self, json):
         data = loads(json)
@@ -186,7 +206,7 @@ class Block:
         return b
     
     @classmethod
-    def from_database(self, db_tuple):
+    def from_tuple(self, db_tuple):
         '''
         CREATE TABLE IF NOT EXISTS Block (
             transactions_root TEXT,
@@ -197,8 +217,11 @@ class Block:
         );
         '''
         b = Block()
-        b.transactionsRoot, b.timestamp,
-        b.nonce, b.miner, b.prevHash = db_tuple
+        b.transactionsRoot = db_tuple[0]
+        b.timestamp = db_tuple[1]
+        b.nonce = db_tuple[2]
+        b.miner = db_tuple[3] 
+        b.prevHash = db_tuple[4]
         return b
 
 '''
@@ -211,31 +234,90 @@ def difficulty(timeLast, timeNew):
         return inf
     return floor(500/ ((timeNew-timeLast) - 30) )
 
+class InvalidBlockchain(Exception):
+    def __init__(self):
+        super().__init__(
+            'Incorrect Blockchain. Blockchain data may have been tampered making the chain invalid.'
+        )
+
+class InvalidBlock(Exception):
+    def __init__(self, block: Block):
+        super().__init__(
+            'The block ' + block.hash() + ' is not valid for this blockchain.'
+        )
+
 class BlockChain:
-    def __init__(self, dbfilename):
+    def __init__(self, dbfilename, genesisBlock: Block = None):
         self.con = sqlite3.connect(dbfilename)
         self.cur = self.con.cursor()
         with open('blockchain_setup.sql', 'r') as setup:
             self.cur.executescript(setup.read())
             setup.close()
-        self.verify()
+        if not self.verify(genesisBlock):
+            raise InvalidBlockchain
+    
+    def closeConnection(self):
+        self.con.close()
     
     def length(self):
-        # TODO return last block id
-        pass
+        self.cur.execute('''SELECT MAX(ROWID) FROM Block''')
+        return self.cur.fetchone()[0]
     
-    def verify(self):
+    def verify(self, genesisBlock: Block= None):
         self.cur.execute('''SELECT * FROM Block ORDER BY ROWID''')
         blocks = self.cur.fetchall()
 
         if len(blocks) == 0:
-            self.cur.execute('''''')
-        pass
+            b = genesisBlock if genesisBlock else Block()
+            self.cur.execute(
+                'INSERT INTO Block VALUES (?, ?, ?, ?, ?, ?)',
+                b.to_tuple()
+            )
+            self.con.commit()
+        else:
+            for i in range(len(blocks)):
+                if i == 0:
+                    continue
+                current = Block.from_tuple(blocks[i])
+                last = Block.from_tuple(blocks[i-1])
 
-    def valid(self, newBlock: Block):
-        # TODO verify if a block is valid
-        pass
-
-    def prevHash(self):
-        return self.blocks[0].prevHash()
+                if current.hash() != blocks[i][-1]:
+                    return False
+                if last.hash() != blocks[i-1][-1]:
+                    return False
+                if not self.valid(last, current):
+                    return False
         
+        return True
+
+    def valid(self, lastBlock: Block,  newBlock: Block):
+        if lastBlock.hash() != newBlock.prevHash:
+            return False
+        if newBlock.timestamp > int(time()):
+            return False
+        dif = difficulty(lastBlock.timestamp, newBlock.timestamp)
+        if dif > 64:
+            return False
+        if newBlock.hash()[:dif] != '0'*dif:
+            return False
+        return True
+    
+    def insertNewBlock(self, newBlock: Block):
+        if self.valid(self.lastBlock(), newBlock):
+            self.cur.execute(
+                'INSERT INTO Block VALUES (?, ?, ?, ?, ?, ?)',
+                newBlock.to_tuple()
+            )
+            self.con.commit()
+        else:
+            raise InvalidBlock(newBlock)
+    
+    def lastBlock(self):
+        try:
+            t = self.cur.execute('''
+                    SELECT * FROM Block ORDER BY ROWID DESC LIMIT 1
+                ''').fetchall()[0]
+        except IndexError:
+            return None
+        
+        return Block.from_tuple(t)

@@ -1,6 +1,8 @@
 import unittest
 from blockchain import *
+from time import sleep
 import os
+import shutil
 
 class TestAddress(unittest.TestCase):
     @classmethod
@@ -121,16 +123,65 @@ class TestBlock(unittest.TestCase):
                             """)
         self.assertEqual(b.hash(), '00000ce24ef39a5bee5e075a88b4b9beae79299e5d8fdf453cbf2c69fd7735c7')
 
-    def text_from_database(self):
-        b = Block.from_database((None, 1710764231, 907547, None, None))
+    def text_from_tuple(self):
+        b = Block.from_tuple((None, 1710764231, 907547, None, None))
         self.assertEqual(b.hash(), '00000ce24ef39a5bee5e075a88b4b9beae79299e5d8fdf453cbf2c69fd7735c7')
 
 class TesstBlockChain(unittest.TestCase):
-    def setUp(self) -> None:
-        b = BlockChain('test.db')
+    @classmethod
+    def setUpClass(self) -> None:
+        self.DB_NAME = './tests/test-TESTING_COPY.db'
+        shutil.copy('./tests/test.db', self.DB_NAME)
+        self.b = BlockChain(self.DB_NAME)
     
-    def tearDown(self) -> None:
-        os.remove('test.db')
+    @classmethod
+    def tearDownClass(self) -> None:
+        self.b.closeConnection()
+        os.remove(self.DB_NAME)
     
-    def test_creation(self):
-        pass
+    def test_block_height(self):
+        self.assertEqual(self.b.length(), 1)
+    
+    def test_insert_invalid_block(self):
+        with self.assertRaises(InvalidBlock):
+            instant_block = Block(self.b.lastBlock().hash())
+            instant_block.timestamp = self.b.lastBlock().timestamp + 31
+            self.b.insertNewBlock(instant_block)
+
+        with self.assertRaises(InvalidBlock):
+            self.b.insertNewBlock(Block('fakehash'))
+
+    def test_insert_valid_block(self):
+        newBlock = Block(self.b.lastBlock().hash())
+        newBlock.timestamp = 1711121932
+        newBlock.nonce = 39555497
+        self.b.insertNewBlock(newBlock)
+    
+    def test_verify(self):
+        b_prime = BlockChain(self.DB_NAME)
+        # should verify without any problem
+        b_prime.closeConnection()
+    
+    def test_verify_tampered_db(self):
+        tampered_db_name_1 = self.DB_NAME + 'TAMP_1'
+        tampered_db_name_2 = self.DB_NAME + 'TAMP_2'
+        
+        shutil.copy(self.DB_NAME, tampered_db_name_1)
+        shutil.copy(self.DB_NAME, tampered_db_name_2)
+        
+        con = sqlite3.connect(tampered_db_name_1)
+        cur = con.cursor()
+        cur.execute('UPDATE Block SET nonce=42 WHERE ROWID=1')
+        con.commit()
+        con.close()
+
+        con = sqlite3.connect(tampered_db_name_2)
+        cur = con.cursor()
+        cur.execute('UPDATE Block SET hash = "0000000000" WHERE ROWID=1')
+        con.commit()
+        con.close()
+
+        for tampered in [tampered_db_name_1, tampered_db_name_2]:
+            with self.assertRaises(InvalidBlockchain):
+                BlockChain(tampered)
+            os.remove(tampered)

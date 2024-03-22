@@ -5,18 +5,19 @@ CREATE TABLE IF NOT EXISTS TTransaction (
     fee INTEGER,
     timestamp INTEGER,
     pub_key TEXT,
-    signature TEXT
+    signature TEXT,
+    hash TEXT PRIMARY KEY
 );
 
 CREATE TABLE IF NOT EXISTS TInMerkle (
+    proof_for_transaction TEXT,
     proof_order INTEGER,
     proof_hash TEXT,
-    proof TEXT,
-    side TEXT
+    proof_side TEXT
 );
 
 CREATE TABLE IF NOT EXISTS TInBlock (
-    transaction_hash TEXT,
+    transaction_hash TEXT PRIMARY KEY,
     block_hash TEXT
 );
 
@@ -25,5 +26,6 @@ CREATE TABLE IF NOT EXISTS Block (
     timestamp INTEGER, 
     nonce INTEGER,
     miner TEXT,
-    prevhash TEXT
+    prevhash TEXT,
+    hash TEXT PRIMARY KEY
 );
