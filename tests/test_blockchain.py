@@ -10,7 +10,7 @@ class TestAddress(unittest.TestCase):
         self.a = Address()
         self.t = self.a.newTransaction('b', 10, 0)
         self.tjson = self.t.to_json()
-    
+
     def test_blockchain_address(self):
         self.assertEqual(len(self.a.address), 64)
 
@@ -22,7 +22,7 @@ class TestAddress(unittest.TestCase):
                 self.a.sign('mock')[0]
             )
         )
-    
+
 class TestTransaction(unittest.TestCase):
     @classmethod
     def setUpClass(self) -> None:
@@ -133,7 +133,7 @@ class TesstBlockChain(unittest.TestCase):
         self.DB_NAME = './tests/test-TESTING_COPY.db'
         shutil.copy('./tests/test.db', self.DB_NAME)
         self.b = BlockChain(self.DB_NAME)
-    
+
     @classmethod
     def tearDownClass(self) -> None:
         self.b.closeConnection()
