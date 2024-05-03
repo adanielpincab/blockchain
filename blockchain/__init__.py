@@ -8,51 +8,38 @@ import sqlite3
 class Transaction:
     def __init__(
             self, 
-            addrFrom: str, 
-            addrTo: str, 
-            amount: int, 
-            fee=0
+            inputs: list[str], 
+            outputs: list[dict]
         ):
-        self.addrFrom = addrFrom
-        self.addrTo = addrTo
-        self.amount = amount
-        self.fee = fee
+        self.inputs = inputs # [tx_id, ... tx_id_N]
+        self.outputs = outputs # [ {"amount":amount, "address":address}, ... ]
         self.timestamp = int(time())
-        self.signature = (None, None) # pub_key, signature
+        self.signature = [None, None] # [pub_key, signature]
     
     def hash(self):
         return sha256(str(
             [
-                self.addrFrom,
-                self.addrTo,
-                self.amount,
-                self.fee,
+                self.inputs,
+                self.outputs,
                 self.timestamp
             ]
         ).encode()).hexdigest()
 
     def verify(self):
-        return (
-            crypto.verify(
-                self.signature[1], 
-                self.hash().encode(), 
-                crypto.public_deserialized(
-                    self.signature[0]
-                )
+        return crypto.verify(
+            self.signature[1], 
+            self.hash().encode(), 
+            crypto.public_deserialized(
+                self.signature[0]
             )
-            and
-            (
-                Address.generate_blockchain_address(self.signature[0]) 
-                == self.addrFrom
-            )
-            )
+        )
 
     def to_json(self):
         return dumps(self.__dict__)
 
     @classmethod
     def from_json(self, json):
-        new = Transaction(0, 0, 0, 0)
+        new = Transaction([], [])
         new.__dict__ = loads(json)
         return new
 
@@ -74,11 +61,6 @@ class Address:
             pem = crypto.public_serialized(public_key)
         
         return sha256(pem.encode()).hexdigest()
-    
-    def newTransaction(self, to: str, amount: int, fee=0):
-        nt = Transaction(self.address, to, amount, fee)
-        nt.signature = self.sign(nt.hash())
-        return nt
     
     def sign(self, str_data):
         return (

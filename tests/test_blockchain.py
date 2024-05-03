@@ -8,8 +8,6 @@ class TestAddress(unittest.TestCase):
     @classmethod
     def setUpClass(self):
         self.a = Address()
-        self.t = self.a.newTransaction('b', 10, 0)
-        self.tjson = self.t.to_json()
 
     def test_blockchain_address(self):
         self.assertEqual(len(self.a.address), 64)
@@ -27,10 +25,20 @@ class TestTransaction(unittest.TestCase):
     @classmethod
     def setUpClass(self) -> None:
         self.a = Address()
-        self.t = self.a.newTransaction('b', 10, 0)
+        self.t = Transaction(
+            ['000', '001'], 
+            [
+                {"amount":10, "address":'a'},
+                {"amount":10, "address":'b'},
+                {"amount":80, "address":'me'}
+            ]
+        )
+        self.t.signature = self.a.sign(self.t.hash())
         self.tjson = self.t.to_json()
 
     def test_transaction_json(self):
+        print(self.t.__dict__)
+        print(Transaction.from_json(self.tjson).__dict__)
         self.assertEqual(
             Transaction.from_json(self.tjson).hash(),
             self.t.hash()
@@ -38,7 +46,11 @@ class TestTransaction(unittest.TestCase):
         
     def test_transaction_verify(self):
         self.assertTrue(self.t.verify())
-        self.t.addrTo = 'tampered'
+        self.t.outputs = [
+                {"amount":10, "address":'a'},
+                {"amount":10, "address":'b'},
+                {"amount":80, "address":'tampered'}
+        ]
         self.assertFalse(self.t.verify())
 
 class TestMerkle(unittest.TestCase):
@@ -184,4 +196,4 @@ class TesstBlockChain(unittest.TestCase):
         for tampered in [tampered_db_name_1, tampered_db_name_2]:
             with self.assertRaises(InvalidBlockchain):
                 BlockChain(tampered)
-            os.remove(tampered)
+            # os.remove(tampered)
