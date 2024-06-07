@@ -1,63 +1,157 @@
-"""https://cs.berry.edu/~nhamid/p2p/framework-python.html"""
+from flask import Flask, request
+from json import loads, dumps, JSONDecodeError
+from uuid import uuid4
+from loguru import logger
+from time import time
+import requests
+from hashlib import sha256
+from _thread import start_new_thread
+from sys import argv
+import blockchain
 
-import socket
-import traceback
+VERSION = '0.0.1'
+ID = str(uuid4())
 
-class Node:
-    def __init__(self, maxpeers, serverport, myid=None, serverhost = None):
-        self.debug = 0
+if len(argv) > 1:
+    CONFIG_FILE = argv[1]
+else:
+    CONFIG_FILE = 'nodeconfig.json'
 
-        self.maxpeers = int(maxpeers)
-        self.serverport = int(serverport)
+with open(CONFIG_FILE, 'r') as f:
+    CONFIG = loads(f.read())
+    f.close()
 
-        # If not supplied, the host name/IP address will be determined
-        # by attempting to connect to an Internet host like Google.
-        if serverhost: self.serverhost = serverhost
-        else: self.__initserverhost()
+def saveConfig():
+    with open(CONFIG_FILE, 'w') as f:
+        f.write(dumps(CONFIG))
+        f.close()
 
-            # If not supplied, the peer id will be composed of the host address
-            # and port number
-        if myid: self.myid = myid
-        else: self.myid = '%s:%d' % (self.serverhost, self.serverport)
+IP = 'http://' + CONFIG['host'] + ':' + str(CONFIG['port'])
 
-            # list (dictionary/hash table) of known peers
-        self.peers = {}  
+# message query
 
-            # used to stop the main loop
-        self.shutdown = False  
+class Message:
+    def __init__(self, code, data = {}):
+        self.id = ID
+        self.sender = IP
+        self.code = code
+        self.data = data
+        self.timestamp = int(time())
+        self.bounce = 4
+    
+    def to_json(self):
+        return dumps(self.__dict__)
+    
+    def add_data(self, key, value):
+        self.data[key] = value
+    
+    def get_data(self, key):
+        return self.data[key]
+    
+    @staticmethod
+    def from_json(json):
+        try:
+            m = Message(0)
+            m.__dict__ = loads(json)
+            return m
+        except JSONDecodeError:
+            return -1
+    
+    def hash(self):
+        d = self.__dict__
+        d['bounce'] = 0
+        return sha256(str(d).encode()).hexdigest()
+    
+    def __eq__(self, other: object) -> bool:
+        return self.hash() == other.hash()
 
-        self.handlers = {}
-        self.router = None
-        # end constructor
-        def makeserversocket(self, port, backlog=5):
-            s = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-            s.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
-            s.bind( ( '', port ) )
-            s.listen( backlog )
-            return s
-        
-        def mainloop( self ):
-            s = self.makeserversocket( self.serverport )
-            s.settimeout(2)
-            self.__debug( 'Server started: %s (%s:%d)'
-                % ( self.myid, self.serverhost, self.serverport ) )
+class MessageQuery:
+    def __init__(self):
+        self.query = []
+    
+    def messages(self):
+        while True:
+            if len(self.query) == 0:
+                yield None
+            else:
+                yield self.query.pop(0)
+    
+    def add(self, message: Message):
+        if ( 
+            (not (message in self.query)) and
+            (message.id != ID)
+         ):
+            self.query.append(message)
 
-            while not self.shutdown:
-                try:
-                    self.__debug( 'Listening for connections...' )
-                    clientsock, clientaddr = s.accept()
-                    clientsock.settimeout(None)
+# flask server (receive)
 
-                    t = threading.Thread( target = self.__handlepeer, args = [ clientsock ] )
-                    t.start()
-                except KeyboardInterrupt:
-                    self.shutdown = True
-                    continue
-                except:
-                    if self.debug:
-                        traceback.print_exc()
-                        continue
-            # end while loop
+msgQuery = MessageQuery()
 
-            self.__debug( 'Main loop exiting' )
-            s.close()
+app = Flask(__name__)
+
+@app.route('/')
+@app.route('/index')
+def index():
+    return 'Blockchain v' + VERSION
+
+@app.route('/message', methods=['POST'])
+def message():
+    msgQuery.add(Message.from_json(request.data))
+    return 'ack'
+
+logger.debug('Starting Flask server...')
+start_new_thread(lambda: app.run(CONFIG['host'], CONFIG['port']), ())
+logger.debug('Flask server started - ' + 'http://' + str(CONFIG['host']) + ':' + str(CONFIG['port']))
+
+# requests client (send)
+
+def send(ip, message: Message):
+    try: 
+        requests.post(ip + '/message', json=message.__dict__, timeout=0.5)
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        if ip in CONFIG['nodes']:
+            logger.error('Node ' + ip + 'timed out. Removing it from list of nodes.')
+            CONFIG['nodes'].remove(ip)
+
+def broadcast(message: Message):
+    for n in CONFIG['nodes']:
+        send(n, message)
+
+# BLOCKCHAIN
+bc = blockchain.BlockChain(dbfilename=CONFIG['blockchain_file'])
+
+# initial hello
+broadcast(Message('HELLO?'))
+
+# processing messages
+def process(message: Message):
+    logger.info('Received message: ' + message.code)
+    
+    # ? = request for something
+    # ! = response back, ACK, result
+
+    if message.code == 'HELLO?':
+        if message.sender not in CONFIG['nodes']:
+            CONFIG['nodes'].append(message.sender)
+            logger.info('New node ' + message.sender + 'added.')
+            send(message.sender, Message('HELLO!'))
+    if message.code == 'HELLO!':
+        if message.sender not in CONFIG['nodes']:
+            CONFIG['nodes'].append(message.sender)
+            logger.info('New node ' + message.sender + 'added.')
+    
+    if message.code == 'HEIGHT?':
+        send(message.sender, Message('HEIGHT', {'height': bc.length()}))
+    if message.code == 'HEIGHT':
+        pass
+
+    if message.code == 'NEW_TRANSACTION':
+        pass
+
+    if message.bounce > 0:
+        message.bounce -= 1
+        broadcast(message)
+
+for m in msgQuery.messages():
+    if m:
+        process(m)
