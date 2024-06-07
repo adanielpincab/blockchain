@@ -238,6 +238,13 @@ def difficulty(timeLast, timeNew):
         return inf
     return floor(500/ ((timeNew-timeLast) - 30) )
 
+'''
+DIFFICULTY OF THE BLOCKCHAIN.
+50 coins, halved every year.
+'''
+def reward(height):
+    return int(50000000/(2**(int(height/525960))))
+
 class InvalidBlockchain(Exception):
     def __init__(self):
         super().__init__(
@@ -269,14 +276,10 @@ class BlockChain:
 
     def SQLsafe(func):
         def wrapper(self, *args):
-            if not self.SQLsafeNested:
-                self.openConnection()
-                self.SQLsafeNested = True
+            self.openConnection()
+            with self.con:
                 res = func(self, *args)
-                self.SQLsafeNested = False
-                self.closeConnection()
-            else:
-                res = func(self, *args)
+            self.closeConnection()
             return res
         return wrapper
     
@@ -313,7 +316,8 @@ class BlockChain:
         
         return True
 
-    def valid(self, lastBlock: Block,  newBlock: Block):
+    @staticmethod
+    def valid(lastBlock: Block,  newBlock: Block):
         if lastBlock.hash() != newBlock.prevHash:
             return False
         if newBlock.timestamp > int(time()):
@@ -328,11 +332,14 @@ class BlockChain:
     @SQLsafe
     def insertNewBlock(self, newBlock: Block):
         if self.valid(self.lastBlock(), newBlock):
-            self.cur.execute(
-                'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
-                newBlock.to_tuple()
-            )
-            self.con.commit()
+            self.openConnection()
+            with self.con:
+                self.cur.execute(
+                    'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
+                    newBlock.to_tuple()
+                )
+                self.con.commit()
+            self.closeConnection()
         else:
             raise InvalidBlock(newBlock)
     
