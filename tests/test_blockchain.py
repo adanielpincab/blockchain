@@ -37,8 +37,6 @@ class TestTransaction(unittest.TestCase):
         self.tjson = self.t.to_json()
 
     def test_transaction_json(self):
-        print(self.t.__dict__)
-        print(Transaction.from_json(self.tjson).__dict__)
         self.assertEqual(
             Transaction.from_json(self.tjson).hash(),
             self.t.hash()
@@ -123,21 +121,13 @@ class TestBlock(unittest.TestCase):
         b.addTransaction(t)
         b.addTransaction(t.hash())
 
-    def text_from_json(self):
-        b = Block.from_json("""
-                            {
-                                'transactionsRoot': None,
-                                'timestamp': 1710764231,
-                                'nonce': 907567,
-                                'miner': None,
-                                'prevHash': None
-                            }
-                            """)
-        self.assertEqual(b.hash(), '00000ce24ef39a5bee5e075a88b4b9beae79299e5d8fdf453cbf2c69fd7735c7')
+    def test_text_from_json(self):
+        b = Block.from_json('{"transactionsRoot": null, "timestamp": 1710764231, "nonce": 907567,"prevHash": null}')
+        self.assertEqual(b.hash(), 'd416380da97a4aaa7dbba8749e4caf2f054c96a50d7c69c3f4ed5b2c3d99fb75')
 
-    def text_from_tuple(self):
-        b = Block.from_tuple((None, 1710764231, 907547, None, None))
-        self.assertEqual(b.hash(), '00000ce24ef39a5bee5e075a88b4b9beae79299e5d8fdf453cbf2c69fd7735c7')
+    def test_text_from_tuple(self):
+        b = Block.from_tuple((None, 1710764231, 907567, None))
+        self.assertEqual(b.hash(), 'd416380da97a4aaa7dbba8749e4caf2f054c96a50d7c69c3f4ed5b2c3d99fb75')
 
 class TesstBlockChain(unittest.TestCase):
     @classmethod
@@ -146,13 +136,20 @@ class TesstBlockChain(unittest.TestCase):
         shutil.copy('./tests/test.db', self.DB_NAME)
         self.b = BlockChain(self.DB_NAME)
 
+        self.tampered_db_name_1 = self.DB_NAME + 'TAMP_1'
+        self.tampered_db_name_2 = self.DB_NAME + 'TAMP_2'
+        shutil.copy(self.DB_NAME, self.tampered_db_name_1)
+        shutil.copy(self.DB_NAME, self.tampered_db_name_2)
+
     @classmethod
     def tearDownClass(self) -> None:
         self.b.closeConnection()
         os.remove(self.DB_NAME)
+        os.remove(self.tampered_db_name_1)
+        os.remove(self.tampered_db_name_2)
     
     def test_block_height(self):
-        self.assertEqual(self.b.length(), 1)
+        self.assertEqual(self.b.length(), 2)
     
     def test_insert_invalid_block(self):
         with self.assertRaises(InvalidBlock):
@@ -164,10 +161,9 @@ class TesstBlockChain(unittest.TestCase):
             self.b.insertNewBlock(Block('fakehash'))
 
     def test_insert_valid_block(self):
-        newBlock = Block(self.b.lastBlock().hash())
-        newBlock.timestamp = 1711121932
-        newBlock.nonce = 39555497
+        newBlock = Block.from_dict({'transactionsRoot': None, 'timestamp': 1717778304, 'nonce': 148689, 'prevHash': '00014561cde46ddb44b954307abc235f28405348a21572eca490307cd755e7be'})
         self.b.insertNewBlock(newBlock)
+        self.assertEqual(self.b.length(), 3)
     
     def test_verify(self):
         b_prime = BlockChain(self.DB_NAME)
@@ -175,25 +171,18 @@ class TesstBlockChain(unittest.TestCase):
         b_prime.closeConnection()
     
     def test_verify_tampered_db(self):
-        tampered_db_name_1 = self.DB_NAME + 'TAMP_1'
-        tampered_db_name_2 = self.DB_NAME + 'TAMP_2'
-        
-        shutil.copy(self.DB_NAME, tampered_db_name_1)
-        shutil.copy(self.DB_NAME, tampered_db_name_2)
-        
-        con = sqlite3.connect(tampered_db_name_1)
+        con = sqlite3.connect(self.tampered_db_name_1)
         cur = con.cursor()
         cur.execute('UPDATE Block SET nonce=42 WHERE ROWID=1')
         con.commit()
         con.close()
 
-        con = sqlite3.connect(tampered_db_name_2)
+        con = sqlite3.connect(self.tampered_db_name_2)
         cur = con.cursor()
         cur.execute('UPDATE Block SET hash = "0000000000" WHERE ROWID=1')
         con.commit()
         con.close()
 
-        for tampered in [tampered_db_name_1, tampered_db_name_2]:
+        for tampered in [self.tampered_db_name_1, self.tampered_db_name_2]:
             with self.assertRaises(InvalidBlockchain):
                 BlockChain(tampered)
-            # os.remove(tampered)

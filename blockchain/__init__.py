@@ -5,10 +5,13 @@ from json import loads, dumps
 from math import floor, inf
 import sqlite3
 
+from blockchain.SQL_setup import SETUP
+
+# TRANSACTION AMOUNT IN MICRO (1 coin = 1 000 000)
 class Transaction:
     def __init__(
             self, 
-            inputs: list[str], 
+            inputs: list[str],  
             outputs: list[dict]
         ):
         self.inputs = inputs # [tx_id, ... tx_id_N]
@@ -42,6 +45,28 @@ class Transaction:
         new = Transaction([], [])
         new.__dict__ = loads(json)
         return new
+    
+    def to_tuple(self):
+        return (self.timestamp, self.signature[0], self.signature[1], self.hash())
+    
+    def inputs_to_tuples(self):
+        res = []
+        h = self.hash()
+        for i in self.inputs:
+            res.append( (h, i) )
+        return res
+    
+    def outputs_to_tuples(self):
+        res = []
+        h = self.hash()
+        for o in self.outputs:
+            res.append( (h, o["address"], o["amount"]) )
+    
+    @classmethod
+    def from_tuple(self, tup):
+        t = Transaction()
+        t.timestamp = tup[0]
+        t.signature = [tup[1], tup[2]]
 
 class Address:
     def __init__(self, priv_pem=None):
@@ -138,7 +163,6 @@ class Block:
         self.transactionsRoot = None
         self.timestamp = int(time())
         self.nonce = 0
-        self.miner = None
         self.prevHash = prevHash
 
     def addTransaction(self, transaction):
@@ -152,25 +176,34 @@ class Block:
             self.transactionsRoot,
             self.timestamp,
             self.nonce,
-            self.miner,
             self.prevHash
         ]).encode()).hexdigest()
     
-    def to_json(self):
-        return dumps({
+    def to_dict(self):
+        return {
             'transactionsRoot': self.transactionsRoot,
             'timestamp': self.timestamp,
             'nonce': self.nonce,
-            'miner': self.miner,
             'prevHash': self.prevHash
-        })
+        }
+    
+    @staticmethod
+    def from_dict(dct):
+        b = Block()
+        b.transactionsRoot = dct['transactionsRoot']
+        b.timestamp = dct['timestamp']
+        b.nonce = dct['nonce']
+        b.prevHash = dct['prevHash']
+        return b
+
+    def to_json(self):
+        return dumps(self.to_dict())
     
     def to_tuple(self):
         return (
             self.transactionsRoot,
             self.timestamp,
             self.nonce,
-            self.miner,
             self.prevHash,
             self.hash()
         )
@@ -182,28 +215,17 @@ class Block:
         b.transactionsRoot = data['transactionsRoot']
         b.timestamp = data['timestamp']
         b.nonce = data['nonce']
-        b.miner = data['miner']
         b.prevHash = data['prevHash']
 
         return b
     
     @classmethod
     def from_tuple(self, db_tuple):
-        '''
-        CREATE TABLE IF NOT EXISTS Block (
-            transactions_root TEXT,
-            timestamp INTEGER, 
-            nonce INTEGER,
-            miner TEXT,
-            prevhash TEXT
-        );
-        '''
         b = Block()
         b.transactionsRoot = db_tuple[0]
         b.timestamp = db_tuple[1]
         b.nonce = db_tuple[2]
-        b.miner = db_tuple[3] 
-        b.prevHash = db_tuple[4]
+        b.prevHash = db_tuple[3]
         return b
 
 '''
@@ -229,22 +251,41 @@ class InvalidBlock(Exception):
         )
 
 class BlockChain:
-    def __init__(self, dbfilename, genesisBlock: Block = None):
-        self.con = sqlite3.connect(dbfilename)
-        self.cur = self.con.cursor()
-        with open('blockchain_setup.sql', 'r') as setup:
-            self.cur.executescript(setup.read())
-            setup.close()
+    def __init__(self, dbfilename, genesisBlock: Block = None, onlyHeaders=False):
+        self.dbfilename = dbfilename
+        self.SQLsafeNested = False # prevents inner callings from closing the db for the main function
+        self.openConnection()
+        self.cur.executescript(SETUP)
+        self.closeConnection()
         if not self.verify(genesisBlock):
             raise InvalidBlockchain
     
+    def openConnection(self):
+        self.con = sqlite3.connect(self.dbfilename)
+        self.cur = self.con.cursor()
+    
     def closeConnection(self):
         self.con.close()
+
+    def SQLsafe(func):
+        def wrapper(self, *args):
+            if not self.SQLsafeNested:
+                self.openConnection()
+                self.SQLsafeNested = True
+                res = func(self, *args)
+                self.SQLsafeNested = False
+                self.closeConnection()
+            else:
+                res = func(self, *args)
+            return res
+        return wrapper
     
+    @SQLsafe
     def length(self):
         self.cur.execute('''SELECT MAX(ROWID) FROM Block''')
         return self.cur.fetchone()[0]
     
+    @SQLsafe    
     def verify(self, genesisBlock: Block= None):
         self.cur.execute('''SELECT * FROM Block ORDER BY ROWID''')
         blocks = self.cur.fetchall()
@@ -252,7 +293,7 @@ class BlockChain:
         if len(blocks) == 0:
             b = genesisBlock if genesisBlock else Block()
             self.cur.execute(
-                'INSERT INTO Block VALUES (?, ?, ?, ?, ?, ?)',
+                'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
                 b.to_tuple()
             )
             self.con.commit()
@@ -284,21 +325,33 @@ class BlockChain:
             return False
         return True
     
+    @SQLsafe
     def insertNewBlock(self, newBlock: Block):
         if self.valid(self.lastBlock(), newBlock):
             self.cur.execute(
-                'INSERT INTO Block VALUES (?, ?, ?, ?, ?, ?)',
+                'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
                 newBlock.to_tuple()
             )
             self.con.commit()
         else:
             raise InvalidBlock(newBlock)
     
+    @SQLsafe
     def lastBlock(self):
         try:
             t = self.cur.execute('''
                     SELECT * FROM Block ORDER BY ROWID DESC LIMIT 1
                 ''').fetchall()[0]
+        except IndexError:
+            return None
+        
+        return Block.from_tuple(t)
+    
+    @SQLsafe
+    def getBlock(self, height):
+        height += 1
+        try:
+            t = self.cur.execute('SELECT * FROM Block WHERE ROWID = (?)', (height, )).fetchall()[0]
         except IndexError:
             return None
         

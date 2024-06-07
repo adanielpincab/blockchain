@@ -6,3 +6,7 @@ __pycache__
 .coverage
 /py_tests
 *.dbTAMP_*
+node1.json
+node2.json
+bc1.db
+bc2.db
