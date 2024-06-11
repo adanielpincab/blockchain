@@ -1,4 +1,4 @@
-from blockchain import Block, BlockChain, reward, Transaction
+from blockchain import Block, BlockChain, reward, Transaction, Address
 import requests
 from json import loads
 from time import sleep, time
@@ -11,6 +11,30 @@ blockchain = BlockChain(dbfilename=CONFIG['blockchain_file'])
 
 valid_transactions = []
 
+def valid_transaction(transaction: Transaction):
+    '''Returns Fee in case of valid'''
+
+    if not transaction.verify():
+        return False
+
+    utxos = blockchain.get_utxos()
+    fee = 0
+
+    for i in transaction.inputs:
+        if not i in utxos.keys():
+            return False
+        if utxos[i]['address'] != Address.generate_blockchain_address(transaction.signature[0]):
+            return False
+        fee += utxos[i]['amount']
+    
+    for o in transaction.outputs:
+        fee -= o['amount']
+    
+    if fee < 0:
+        return False
+    
+    return (True, fee)
+
 def update_pool():
     global valid_transactions
     valid_transactions = []
@@ -20,22 +44,15 @@ def update_pool():
 
     for t in transactions:
         t = Transaction.from_dict(t)
-        
-        if not t.verify():
+
+        valid_and_fee = valid_transaction(t)
+
+        if valid_and_fee == False:
+            logger.info('Invalid transaction: ' + t.hash())
             continue
 
-        utxos = {}
-
-        for utxo in blockchain.get_utxos():
-            utxos[utxo[0]] = utxo[3]
-
-        balance = 0
-
-        for i in t.inputs:
-            # all inputs are unspent outputs
-            pass
-        
         valid_transactions.append(t)
+        logger.info('Added transaction to block: ' + t.hash())
 
 def minutesPassed(start):
     return int((time() - start)/60)
@@ -55,11 +72,12 @@ def sync_chain():
     chain_info = get_json_data(CONFIG['node'], '/chain_info')
 
     logger.debug('Updating chain...')
-    # either I'm in the wrong chain or I am behind the last block
-    if chain_info['genesis'] != blockchain.getBlock(0).hash:
+    # either I'm in the wrong chain or I am behind the last 
+    
+    if chain_info['genesis'] != blockchain.getBlock(0).hash():
         get_from = 0 # get the whole new chain
     else:
-        get_from = blockchain.length()+1 # only get the latest blocks
+        get_from = blockchain.length() # only get the latest blocks
 
     for h in range(get_from, chain_info['length']):
         if h == 0:
@@ -72,9 +90,7 @@ def sync_chain():
             blockchain = BlockChain(dbfilename=CONFIG['blockchain_file'], genesisBlock=genesis)
             logger.success('New genesis block: ' + genesis.hash())
         else: 
-            print(get_json_data(CONFIG['node'], '/block/'+str(h)))
             new_block = Block.from_dict(get_json_data(CONFIG['node'], '/block/'+str(h)))
-            print(new_block.__dict__)
             blockchain.insertNewBlock(new_block)
             logger.success('New block: ' + new_block.hash())
     logger.debug('Chain updated.')

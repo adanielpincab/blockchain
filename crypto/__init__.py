@@ -88,7 +88,7 @@ def private_to_pem(private_key):
 
     return key_pem_bytes.encode('utf-8')
 
-def private_from_pem(pem_file, password):
+def private_from_pem(pem_file, password=None):
     password = password.encode()
     private_pem_bytes = Path(pem_file).read_bytes()
 

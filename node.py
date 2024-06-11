@@ -121,6 +121,8 @@ def process(msg: Message):
             TRASNSACTION_POOL.append(t.to_dict())
             TRASNSACTION_POOL_HASHES.append(t.hash())
             broadcast(msg)
+        
+        return 'ack'
 
 # flask server (receive)
 app = Flask(__name__)

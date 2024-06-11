@@ -29,6 +29,8 @@ class Transaction:
         ).encode()).hexdigest()
 
     def verify(self):
+        if self.signature == [None, None]:
+            return False
         return crypto.verify(
             self.signature[1], 
             self.hash().encode(), 
@@ -97,8 +99,8 @@ class Address:
         if not priv_key:
             self.priv, self.pub = crypto.generate_key_pair()
         else:
-            self.priv = crypto.private_from_pem(priv_key)
-            self.pub = self.priv.public_key
+            self.priv = priv_key
+            self.pub = self.priv.public_key()
         
         self.address = self.generate_blockchain_address(self.pub)
     
