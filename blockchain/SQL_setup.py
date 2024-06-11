@@ -7,10 +7,11 @@ SETUP = """CREATE TABLE IF NOT EXISTS TTransaction (
 
 CREATE TABLE IF NOT EXISTS TInput (
     tx_hash TEXT,
-    tx_input_hash
+    utxo_hash TEXT 
 );
 
 CREATE TABLE IF NOT EXISTS TOutput (
+    hash TEXT PRIMARY KEY,
     tx_hash TEXT,
     address TEXT,
     amount INTEGER

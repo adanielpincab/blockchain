@@ -161,7 +161,7 @@ class TesstBlockChain(unittest.TestCase):
             self.b.insertNewBlock(Block('fakehash'))
 
     def test_insert_valid_block(self):
-        newBlock = Block.from_dict({'transactionsRoot': None, 'timestamp': 1717778304, 'nonce': 148689, 'prevHash': '00014561cde46ddb44b954307abc235f28405348a21572eca490307cd755e7be'})
+        newBlock = Block.from_dict({'transactionsRoot': None, 'transactions':[], 'timestamp': 1717778304, 'nonce': 148689, 'prevHash': '00014561cde46ddb44b954307abc235f28405348a21572eca490307cd755e7be'})
         self.b.insertNewBlock(newBlock)
         self.assertEqual(self.b.length(), 3)
     

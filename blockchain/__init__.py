@@ -14,7 +14,7 @@ class Transaction:
             inputs: list[str],  
             outputs: list[dict]
         ):
-        self.inputs = inputs # [tx_id, ... tx_id_N]
+        self.inputs = inputs # [utxo_hash 1, ... utxo_hash N]
         self.outputs = outputs # [ {"amount":amount, "address":address}, ... ]
         self.timestamp = int(time())
         self.signature = [None, None] # [pub_key, signature]
@@ -36,6 +36,15 @@ class Transaction:
                 self.signature[0]
             )
         )
+    
+    def to_dict(self):
+        return self.__dict__
+    
+    @staticmethod
+    def from_dict(dct):
+        t = Transaction([], [])
+        t.__dict__ = dct
+        return t
 
     def to_json(self):
         return dumps(self.__dict__)
@@ -55,25 +64,40 @@ class Transaction:
         for i in self.inputs:
             res.append( (h, i) )
         return res
+
+    def load_inputs_from_tuples(self, tuple_list):
+        for t in tuple_list:
+            self.inputs.append(t[1]) # input
     
     def outputs_to_tuples(self):
         res = []
         h = self.hash()
         for o in self.outputs:
-            res.append( (h, o["address"], o["amount"]) )
+            res.append( (
+                sha256(str((h, o['address'], o['amount'])).encode()).hexdigest(), 
+                h, 
+                o["address"], 
+                o["amount"]
+                ) )
+        return res
+    
+    def load_outputs_from_tuples(self, tuple_list):
+        for t in tuple_list:
+            self.outputs.append({'address':t[2], 'amount':t[3]})
     
     @classmethod
     def from_tuple(self, tup):
-        t = Transaction()
+        t = Transaction([], [])
         t.timestamp = tup[0]
         t.signature = [tup[1], tup[2]]
+        return t
 
 class Address:
-    def __init__(self, priv_pem=None):
-        if not priv_pem:
+    def __init__(self, priv_key=None):
+        if not priv_key:
             self.priv, self.pub = crypto.generate_key_pair()
         else:
-            self.priv = crypto.private_from_pem(priv_pem)
+            self.priv = crypto.private_from_pem(priv_key)
             self.pub = self.priv.public_key
         
         self.address = self.generate_blockchain_address(self.pub)
@@ -139,7 +163,10 @@ class Merkle:
         }
         for l in range(len(self.levels[:-1])):
             level = self.levels[l]
-            ind = level.index(hash)
+            try:
+                ind = level.index(hash)
+            except ValueError:
+                return None
             if (ind == len(level)-1) and (len(level)%2 != 0):
                 # last hash with no pairs just goes up to the next level
                 continue
@@ -159,17 +186,18 @@ class Merkle:
 
 class Block:
     def __init__(self, prevHash=None):
-        self.transactions = Merkle()
-        self.transactionsRoot = None
+        self.transactionsRaw = [] # transaction dicts
+        self.transactionsTree = Merkle() # merkle tree (transaction hashes)
+        self.transactionsRoot = None # root of the merkle tree
         self.timestamp = int(time())
         self.nonce = 0
         self.prevHash = prevHash
 
-    def addTransaction(self, transaction):
-        if type(transaction) == Transaction:
-            transaction = transaction.hash()
-        self.transactions.add(transaction)
-        self.transactionsRoot = self.transactions.root()
+    def addTransaction(self, transaction: Transaction):
+        transaction_hash = transaction.hash()
+        self.transactionsTree.add(transaction_hash)
+        self.transactionsRaw.append(transaction.to_dict())
+        self.transactionsRoot = self.transactionsTree.root()
     
     def hash(self):
         return sha256(str([
@@ -181,7 +209,7 @@ class Block:
     
     def to_dict(self):
         return {
-            'transactionsRoot': self.transactionsRoot,
+            'transactions':self.transactionsRaw,
             'timestamp': self.timestamp,
             'nonce': self.nonce,
             'prevHash': self.prevHash
@@ -190,10 +218,13 @@ class Block:
     @staticmethod
     def from_dict(dct):
         b = Block()
-        b.transactionsRoot = dct['transactionsRoot']
         b.timestamp = dct['timestamp']
         b.nonce = dct['nonce']
         b.prevHash = dct['prevHash']
+
+        for td in dct['transactions']:
+            b.addTransaction(Transaction.from_dict(td))
+
         return b
 
     def to_json(self):
@@ -255,6 +286,12 @@ class InvalidBlock(Exception):
     def __init__(self, block: Block):
         super().__init__(
             'The block ' + block.hash() + ' is not valid for this blockchain.'
+        )
+
+class InvalidBlockTransaction(Exception):
+    def __init__(self, block: Block, transaction: Transaction):
+        super().__init__(
+            'Transaction ' + transaction.hash() + ' es not valid in block ' + block.hash()
         )
 
 class BlockChain:
@@ -331,35 +368,112 @@ class BlockChain:
     
     @SQLsafe
     def insertNewBlock(self, newBlock: Block):
-        if self.valid(self.lastBlock(), newBlock):
-            self.openConnection()
-            with self.con:
-                self.cur.execute(
-                    'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
-                    newBlock.to_tuple()
-                )
-                self.con.commit()
-            self.closeConnection()
-        else:
+        if not self.valid(self.lastBlock(), newBlock):
             raise InvalidBlock(newBlock)
+
+        if newBlock.transactionsRaw != []:
+            utxos = self.get_utxos()
+
+            fees = 0
+            for i in range(1, len(newBlock.transactionsRaw)): # transctions after coinbase
+                t = Transaction.from_dict(newBlock.transactionsRaw[i])
+                for _in in t.inputs: # any other transaction
+                    if not _in in utxos.keys(): # already spent, or unexistent
+                        raise InvalidBlockTransaction(t, newBlock)
+                    if (
+                        utxos[_in]['address'] != 
+                        Address.generate_blockchain_address(t.signature[0])
+                        ): # unspent, but don't belong to the sender
+                        raise InvalidBlockTransaction(t, newBlock)
+                    fees += utxos[_in]['amount']
+                for out in t.outputs:
+                    fees -= out['amount']
+            
+            # coinbase transaction
+            t = Transaction.from_dict(newBlock.transactionsRaw[0])
+            rew = reward(self.length()-1) + fees
+            if t.inputs != []:
+                raise InvalidBlockTransaction(t, newBlock)
+            if len(t.outputs) != 1:
+                raise InvalidBlockTransaction(t, newBlock)
+            if t.outputs[0]['amount'] > rew:
+                raise InvalidBlockTransaction(t, newBlock)
+
+        self.openConnection()
+        with self.con:
+            self.cur.execute(
+                'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
+                newBlock.to_tuple()
+            )
+        for t in newBlock.transactionsRaw:
+            t = Transaction.from_dict(t)
+            proof = newBlock.transactionsTree.proof(t.hash())
+            if not proof:
+                raise InvalidBlockTransaction(newBlock, t)
+            self.cur.execute(
+                'INSERT INTO TInBlock VALUES (?, ?)',
+                (t.hash(), newBlock.hash())
+            )
+            self.cur.execute(
+                'INSERT INTO TTransaction VALUES (?, ?, ?, ?)',
+                (t.timestamp, t.signature[0], t.signature[1], t.hash())
+            )
+            for inp in t.inputs_to_tuples():
+                self.cur.execute(
+                    'INSERT INTO TInput VALUES (?, ?)',
+                    inp
+                )
+            for out in t.outputs_to_tuples():
+                self.cur.execute(
+                    'INSERT INTO TOutput VALUES (?, ?, ?, ?)',
+                    out
+                )
+        self.con.commit()
     
     @SQLsafe
+    def get_utxos(self):
+        utxos = {}
+        utxos_tuple = self.cur.execute('''
+        SELECT * FROM TOutput WHERE NOT EXISTS (SELECT * FROM TInput WHERE TInput.utxo_hash = TOutput.hash)
+        ''').fetchall()
+        for i in utxos_tuple:
+            utxos[i[0]] = {'address':i[2], 'amount':i[3]} # utxo_hash, utxo_address, utxo_quant
+        return utxos
+
+    @SQLsafe
     def lastBlock(self):
-        try:
-            t = self.cur.execute('''
-                    SELECT * FROM Block ORDER BY ROWID DESC LIMIT 1
-                ''').fetchall()[0]
-        except IndexError:
-            return None
-        
-        return Block.from_tuple(t)
+        return self.getBlock(self.length()-1)
     
     @SQLsafe
     def getBlock(self, height):
         height += 1
         try:
-            t = self.cur.execute('SELECT * FROM Block WHERE ROWID = (?)', (height, )).fetchall()[0]
+            t_block = self.cur.execute('SELECT * FROM Block WHERE ROWID = (?)', (height, )).fetchall()[0]
+            block = Block.from_tuple(t_block)
+            block_transaction_hashes = self.cur.execute('SELECT * FROM TInBlock WHERE block_hash = (?)', (block.hash(), )).fetchall()
+            for (th, bh) in block_transaction_hashes:
+                trans = self.get_transaction(th)
+                block.addTransaction(trans)
+        except IndexError:
+            return None
+
+        return block
+    
+    def get_transaction(self, t_hash):
+        try:
+            transaction_tuple = self.cur.execute('SELECT * FROM TTransaction WHERE hash = (?)', (t_hash, )).fetchall()[0]
+            inputs_tuple = self.cur.execute('SELECT * FROM TInput WHERE tx_hash = (?)', (t_hash,)).fetchall()
+            outputs_tuple = self.cur.execute('SELECT * FROM TOutput WHERE tx_hash = (?)', (t_hash,)).fetchall()
         except IndexError:
             return None
         
-        return Block.from_tuple(t)
+        trans = Transaction.from_tuple(transaction_tuple)
+        trans.load_inputs_from_tuples(inputs_tuple)
+        trans.load_outputs_from_tuples(outputs_tuple)
+
+        return trans
+
+
+
+    def addTransaction():
+        pass

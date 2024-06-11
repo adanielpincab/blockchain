@@ -48,6 +48,8 @@ class Message:
 
 # BLOCKCHAIN
 bc = blockchain.BlockChain(dbfilename=CONFIG['blockchain_file'])
+TRASNSACTION_POOL = []
+TRASNSACTION_POOL_HASHES = []
 
 # requests client 
 
@@ -94,18 +96,31 @@ def process(msg: Message):
             return
 
         logger.info('New block received: ' + new_block.hash())
-        try: 
+        try:
             bc.insertNewBlock(new_block)
             logger.success('New block added to the blockchain: ' + new_block.hash())
             broadcast(msg)
             return 'accepted'
         except blockchain.InvalidBlock:
-            logger.success('Invalid block. ' + new_block.hash())
-            if new_block.prevHash() != bc.lastBlock().hash():
-                logger.info('Block does not match current chain.')
+            logger.error('Invalid block. ' + new_block.hash())
+            if new_block.prevHash != bc.lastBlock().hash():
+                logger.error('Block does not match current chain.')
                 broadcast(msg)
                 sync_trigger = True
             return 'denied'
+        except blockchain.InvalidBlockTransaction:
+            logger.error('Invalid transaction in block. ' + new_block.hash())
+            sync_trigger = True
+            return 'denied'
+    
+    if msg.code == 'NEW_TRANSACTION':
+        t = blockchain.Transaction.from_dict(msg.data)
+        logger.info('New transaction received: ' + t.hash())
+
+        if not t.hash() in TRASNSACTION_POOL_HASHES:
+            TRASNSACTION_POOL.append(t.to_dict())
+            TRASNSACTION_POOL_HASHES.append(t.hash())
+            broadcast(msg)
 
 # flask server (receive)
 app = Flask(__name__)
@@ -146,6 +161,14 @@ def get_block(height):
 @app.route('/new_block', methods=['POST'])
 def new_block():
     return process(Message('NEW_BLOCK', dict(request.json)))
+
+@app.route('/new_transaction', methods=['POST'])
+def new_transaction():
+    return process(Message('NEW_TRANSACTION', dict(request.json)))
+
+@app.route('/transaction_pool')
+def transaction_pool():
+    return TRASNSACTION_POOL
 
 logger.debug('Starting Flask server...')
 start_new_thread(lambda: app.run(CONFIG['host'], CONFIG['port']), ())
