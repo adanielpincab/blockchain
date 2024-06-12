@@ -67,6 +67,14 @@ def verify(hex_signature, message, public_key):
         return False
 
 def private_to_pem_file(private_key, pem_file, password):
+    key_pem_bytes = private_to_pem_bytes(private_key, password)
+
+    # Filename could be anything
+    key_pem_path = Path(pem_file)
+    key_pem_path.write_bytes(key_pem_bytes)
+
+# TODO: esto funciona o no ? UNENCRYPTED ??
+def private_to_pem_bytes(private_key, password=None):
     password = password.encode()
     key_pem_bytes = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,  # PEM Format is specified
@@ -74,31 +82,22 @@ def private_to_pem_file(private_key, pem_file, password):
         encryption_algorithm=serialization.BestAvailableEncryption(password),
     )
 
-    # Filename could be anything
-    key_pem_path = Path(pem_file)
-    key_pem_path.write_bytes(key_pem_bytes)
+    return key_pem_bytes
 
-# TODO: esto funciona o no ? UNENCRYPTED ??
-def private_to_pem(private_key):
+def pem_bytes_to_private(_bytes, password=None):
     password = password.encode()
-    key_pem_bytes = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,  # PEM Format is specified
-        format=serialization.PrivateFormat.PKCS8,
-    )
-
-    return key_pem_bytes.encode('utf-8')
-
-def private_from_pem(pem_file, password=None):
-    password = password.encode()
-    private_pem_bytes = Path(pem_file).read_bytes()
-
     try:
         return serialization.load_pem_private_key(
-                    private_pem_bytes,
+                    _bytes,
                     password=password,
                 )
     except ValueError:
         raise ValueError
+
+def private_from_pem_file(pem_file, password=None):
+    private_pem_bytes = Path(pem_file).read_bytes()
+
+    return pem_bytes_to_private(private_pem_bytes, password)
 
 def public_serialized(public_key):
     public_pem_bytes = public_key.public_bytes(

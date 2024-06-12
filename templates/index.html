@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <title>Wallet</title>
+</head>
+<body>
+    {% if first_time %}
+    <div id="create">
+        <h2>CREATE YOUR WALLET</h2>
+        <p>Enter a password for your new wallet. This password will be used for encrypting your private key and will be necessary to create transactions.</p><br>
+        <input type="password" id="create-password" placeholder="password">
+        <input type="password" id="create-password-confirm" placeholder="confirm password">
+        <img class="arrow-btn" id="create-submit" src="{{ url_for('static', filename='/svg/outline/arrow-right.svg') }}"></object>
+    </div>
+    {% endif %}
+
+
+    <main>
+        <div>
+            <h2>Balance:</h2>
+            <span id="balance" class="mono"></span>
+        </div>
+    </main>
+</body>
+<script src="{{ url_for('static', filename='socket.io.js') }}"></script>
+<script>
+    const socket = io();
+    
+    createForm = document.getElementById('create');
+    createPassword = document.getElementById('create-password');
+    createPasswordConfirm = document.getElementById('create-password-confirm');
+    createSubmit = document.getElementById('create-submit');
+    createSubmit.classList.add('disabled');
+
+    loginPassword = document.getElementById('create-password');
+    loginSubmit = document.getElementById('create-submit');
+
+    function checkCreateForm() {
+        if (createPassword.value != createPasswordConfirm.value){
+            createPasswordConfirm.classList.add('err');
+            createSubmit.classList.add('disabled');
+        } else {
+            createPasswordConfirm.classList.remove('err');
+            createSubmit.classList.remove('disabled');
+        }
+    }
+    createPasswordConfirm.addEventListener('input', checkCreateForm);
+    createPassword.addEventListener('input', checkCreateForm);
+
+    createSubmit.addEventListener('click', function(){
+        if (createPassword.value == createPasswordConfirm.value){
+            socket.emit('create_new', {password:createPassword.value});
+            return;
+        }
+    });
+
+    let my_address = "";
+
+    socket.on('my_addresses_response', function(address){
+        let my_address = address;
+        createForm.style.display = "none";
+    });
+</script>
+</html>

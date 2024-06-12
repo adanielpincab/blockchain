@@ -474,8 +474,3 @@ class BlockChain:
         trans.load_outputs_from_tuples(outputs_tuple)
 
         return trans
-
-
-
-    def addTransaction():
-        pass
