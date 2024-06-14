@@ -14,14 +14,14 @@
         <p>Enter a password for your new wallet. This password will be used for encrypting your private key and will be necessary to create transactions.</p><br>
         <input type="password" id="create-password" placeholder="password">
         <input type="password" id="create-password-confirm" placeholder="confirm password">
-        <img class="arrow-btn" id="create-submit" src="{{ url_for('static', filename='/svg/outline/arrow-right.svg') }}"></object>
+        <img class="arrow-btn disabled" id="create-submit" src="{{ url_for('static', filename='/svg/outline/arrow-right.svg') }}"></object>
     </div>
     {% endif %}
 
 
     <main>
         <div>
-            <h2>Balance:</h2>
+            <h2 id="my_address" class="mono"></h2>
             <span id="balance" class="mono"></span>
         </div>
     </main>
@@ -30,14 +30,16 @@
 <script>
     const socket = io();
     
-    createForm = document.getElementById('create');
-    createPassword = document.getElementById('create-password');
-    createPasswordConfirm = document.getElementById('create-password-confirm');
-    createSubmit = document.getElementById('create-submit');
-    createSubmit.classList.add('disabled');
+    const createForm = document.getElementById('create');
+    const createPassword = document.getElementById('create-password');
+    const createPasswordConfirm = document.getElementById('create-password-confirm');
+    const createSubmit = document.getElementById('create-submit');
 
-    loginPassword = document.getElementById('create-password');
-    loginSubmit = document.getElementById('create-submit');
+    const loginPassword = document.getElementById('create-password');
+    const loginSubmit = document.getElementById('create-submit');
+
+    const my_address = document.getElementById('my_address');
+    const my_balance = document.getElementById('balance');
 
     function checkCreateForm() {
         if (createPassword.value != createPasswordConfirm.value){
@@ -48,21 +50,39 @@
             createSubmit.classList.remove('disabled');
         }
     }
-    createPasswordConfirm.addEventListener('input', checkCreateForm);
-    createPassword.addEventListener('input', checkCreateForm);
+    if (createForm != null) {
+        createPasswordConfirm.addEventListener('input', checkCreateForm);
+        createPassword.addEventListener('input', checkCreateForm);
+        createSubmit.addEventListener('click', function(){
+            if (createPassword.value == createPasswordConfirm.value){
+                socket.emit('create_new', {password:createPassword.value});
+                createForm.style.display = "none";
+                return;
+            }
+        });
+    }
 
-    createSubmit.addEventListener('click', function(){
-        if (createPassword.value == createPasswordConfirm.value){
-            socket.emit('create_new', {password:createPassword.value});
-            return;
-        }
+    let address = "";
+    let balance = 0;
+
+    function update_balance(){
+        my_balance.textContent = balance;
+    }
+    function update_address(){
+        my_address.textContent = address;
+    }
+
+    socket.on('ui_update', function(data){
+        console.log('Got my balance: ' + data.balance);
+        balance = data.balance;
+        update_balance();
+
+        console.log('Got my address: ' + data.address);
+        address = data.address;
+        update_address();
     });
 
-    let my_address = "";
-
-    socket.on('my_addresses_response', function(address){
-        let my_address = address;
-        createForm.style.display = "none";
-    });
+    socket.emit('request_update');
+    console.log('Requested update.');
 </script>
 </html>

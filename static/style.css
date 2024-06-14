@@ -62,7 +62,6 @@ input[type="password"]{
     opacity: 60%;
 }
 
-.error {
-    border: 1px solid --imperial-red;
-    color: 1px solid --imperial-red;
+.mono {
+    font-family: 'Noto Sans Mono';
 }

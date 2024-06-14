@@ -10,3 +10,7 @@ node1.json
 node2.json
 bc1.db
 bc2.db
+bc.db
+priv.wallet
+priv2.wallet
+pruebas.py

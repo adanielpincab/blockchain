@@ -461,6 +461,7 @@ class BlockChain:
 
         return block
     
+    @SQLsafe
     def get_transaction(self, t_hash):
         try:
             transaction_tuple = self.cur.execute('SELECT * FROM TTransaction WHERE hash = (?)', (t_hash, )).fetchall()[0]
@@ -474,3 +475,4 @@ class BlockChain:
         trans.load_outputs_from_tuples(outputs_tuple)
 
         return trans
+    

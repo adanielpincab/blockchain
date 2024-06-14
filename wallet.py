@@ -30,48 +30,18 @@ def save_data():
 
 blockchain = BlockChain(dbfilename=CONFIG['blockchain_file'])
 
+update_ui = False
+
 def get_json_data(ip, path):
     try: 
         return requests.get(ip + path, timeout=5).json()
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         return None
 
-app = Flask(__name__)
-socketio = SocketIO(app)
-
-@app.route('/')
-@app.route('/index')
-def index():
-    if WALLET == {}:
-        return render_template('index.html', first_time=True)
-    
-    return render_template('index.html', first_time=False)
-
-@socketio.on('create_new')
-def create_new(data):
-    if WALLET != {}:
-        return
-    
-    a = Address()
-    WALLET['address'] = a.address
-    WALLET['private'] = crypto.private_to_pem_bytes(a.priv, data['password']).decode()
-    save_data()
-
-    socketio.emit('my_addresses_response', WALLET['address'])
-
-@socketio.on('my_address')
-def my_address():
-    socketio.emit('my_addresses_response', WALLET['address'])
-
-@socketio.on('get_transactions')
-def handle(data):
-    blockchain.get_utxos
-    socketio.emit('response', 'Server received your message: ' + data)
-
 # --- SYNC CHAIN
 def sync_chain():
     global blockchain
-    global socketio
+    global update_ui
 
     while True:
         logger.debug('Looking up chain...')
@@ -107,9 +77,82 @@ def sync_chain():
                 blockchain.insertNewBlock(new_block)
                 logger.success('New block: ' + new_block.hash())
         logger.debug('Chain updated.')
+        update_ui = True
         sleep(wait_secs)
 
 start_new_thread(sync_chain, ())
 # --- SYNC CHAIN
+
+app = Flask(__name__)
+socketio = SocketIO(app)
+
+@app.route('/')
+@app.route('/index')
+def index():
+    if WALLET == {}:
+        return render_template('index.html', first_time=True)
+    
+    return render_template('index.html', first_time=False)
+
+@socketio.on('create_new')
+def create_new(data):
+    if WALLET != {}:
+        return
+    
+    a = Address()
+    WALLET['address'] = a.address
+    WALLET['private'] = crypto.private_to_pem_bytes(a.priv, data['password']).decode()
+    save_data()
+
+    socketio.emit('my_addresses_response', WALLET['address'])
+
+@socketio.on('my_address')
+def my_address():
+    socketio.emit('my_addresses_response', WALLET['address'])
+
+@socketio.on('request_update')
+def my_address():
+    update_ui = True
+
+@socketio.on('get_transactions')
+def handle(data):
+    blockchain.get_utxos
+    socketio.emit('response', 'Server received your message: ' + data)
+
+# --- UI UPDATER ---
+def get_transaction_pool_utxos():
+    pool = get_json_data(CONFIG['node'], '/transaction_pool')
+    res = []
+    for t in pool:
+        t = Transaction.from_dict(t)
+        for out in t.outputs:
+            if out['address'] == WALLET['address']:
+                res.append(out) 
+    return res   
+
+def calc_balance():
+    utxos = blockchain.get_utxos()
+
+    balance = 0
+    for u in [*utxos.values(), *get_transaction_pool_utxos()]:
+        if u['address'] == WALLET['address']:
+            balance += u['amount']
+    return balance
+
+def ui_updater():
+    global update_ui
+
+    while True:
+        while not update_ui:
+            pass
+        update_ui = False
+        
+        socketio.emit('ui_update', {
+            'balance': calc_balance(),
+            'address':WALLET['address']
+            })
+
+start_new_thread(ui_updater, ())
+# ^^^ UI UPDATER ^^^
 
 app.run(CONFIG["frontend_host"], CONFIG["frontend_port"], debug=True)
