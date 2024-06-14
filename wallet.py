@@ -89,6 +89,7 @@ socketio = SocketIO(app)
 @app.route('/')
 @app.route('/index')
 def index():
+    update_ui = True
     if WALLET == {}:
         return render_template('index.html', first_time=True)
     
@@ -120,6 +121,9 @@ def handle(data):
     socketio.emit('response', 'Server received your message: ' + data)
 
 # --- UI UPDATER ---
+transactions = []
+balance = 0
+
 def get_transaction_pool_utxos():
     pool = get_json_data(CONFIG['node'], '/transaction_pool')
     res = []
@@ -127,29 +131,43 @@ def get_transaction_pool_utxos():
         t = Transaction.from_dict(t)
         for out in t.outputs:
             if out['address'] == WALLET['address']:
+                out['transaction'] = t.hash()
                 res.append(out) 
+
     return res   
 
-def calc_balance():
+def calc_from_utxos():
+    global balance
+    global transactions
+    global address
+
     utxos = blockchain.get_utxos()
 
+    transactions = []
     balance = 0
+
     for u in [*utxos.values(), *get_transaction_pool_utxos()]:
         if u['address'] == WALLET['address']:
             balance += u['amount']
-    return balance
+            transactions.append(blockchain.get_transaction(u['transaction']).to_dict())
+    
+    transactions.reverse()
 
 def ui_updater():
     global update_ui
+    global balance
 
     while True:
         while not update_ui:
             pass
         update_ui = False
+
+        calc_from_utxos()
         
         socketio.emit('ui_update', {
-            'balance': calc_balance(),
-            'address':WALLET['address']
+            'balance': balance,
+            'address':WALLET['address'],
+            'transactions':transactions
             })
 
 start_new_thread(ui_updater, ())

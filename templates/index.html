@@ -21,8 +21,13 @@
 
     <main>
         <div>
+            My address:
             <h2 id="my_address" class="mono"></h2>
             <span id="balance" class="mono"></span>
+        </div>
+
+        <div id="transactions">
+            
         </div>
     </main>
 </body>
@@ -40,6 +45,7 @@
 
     const my_address = document.getElementById('my_address');
     const my_balance = document.getElementById('balance');
+    const my_transactions = document.getElementById('transactions');
 
     function checkCreateForm() {
         if (createPassword.value != createPasswordConfirm.value){
@@ -64,22 +70,32 @@
 
     let address = "";
     let balance = 0;
+    let transactions = [];
 
-    function update_balance(){
-        my_balance.textContent = balance;
-    }
-    function update_address(){
-        my_address.textContent = address;
+    function update_balance(){ my_balance.textContent = balance; }
+    function update_address(){ my_address.textContent = address; }
+    function update_transactions(){
+        my_transactions.innerHTML = '';
+        for (t of transactions ) {
+            t_div = document.createElement('div');
+            t_div.textContent = JSON.stringify(t);
+            my_transactions.appendChild(t_div);
+        }
     }
 
     socket.on('ui_update', function(data){
         console.log('Got my balance: ' + data.balance);
-        balance = data.balance;
+        balance = data.balance.toString();
+        balance = balance.slice(0, balance.length-6) + '.' + balance.slice(balance.length-6, balance.length);
         update_balance();
 
         console.log('Got my address: ' + data.address);
         address = data.address;
         update_address();
+
+        console.log('Got transactions: ' + JSON.stringify(data.transactions));
+        transactions = data.transactions;
+        update_transactions();
     });
 
     socket.emit('request_update');

@@ -439,7 +439,7 @@ class BlockChain:
         SELECT * FROM TOutput WHERE NOT EXISTS (SELECT * FROM TInput WHERE TInput.utxo_hash = TOutput.hash)
         ''').fetchall()
         for i in utxos_tuple:
-            utxos[i[0]] = {'address':i[2], 'amount':i[3]} # utxo_hash, utxo_address, utxo_quant
+            utxos[i[0]] = {'transaction':i[1], 'amount':i[3], 'address':i[2]} # utxo_hash, tx_hash, utxo_address, utxo_quant
         return utxos
 
     @SQLsafe
