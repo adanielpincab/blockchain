@@ -207,7 +207,7 @@ def sync_chain():
     except ZeroDivisionError:
         self_dens = 0
 
-    if dens > self_dens:
+    if (dens > self_dens) and (chain_info['date_start'] < bc.getBlock(0).timestamp):
         logger.debug('Found better chain. Updating...')
         # either I'm in the wrong chain or I am behind the last block
         if chain_info['genesis'] != bc.getBlock(0).hash:
