@@ -1,6 +1,8 @@
 {
     "host":"localhost",
     "port":8080,
-    "nodes":["http://localhost:5050"],
+    "nodes":[
+        ["localhost", 8081]
+    ],
     "blockchain_file": "bc.db"
 }
