@@ -11,7 +11,5 @@ node2.json
 bc1.db
 bc2.db
 bc.db
-priv.wallet
-priv2.wallet
+*.wallet
 pruebas.py
-user.wallet

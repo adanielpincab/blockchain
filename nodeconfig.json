@@ -1,6 +1,9 @@
 {
     "host":"localhost",
     "port":8080,
-    "nodes":["http://localhost:5050"],
-    "blockchain_file": "bc.db"
+    "nodes":[
+        ["localhost", 8081]
+    ],
+    "blockchain_file": "bc2.db",
+    "mining_address":"your-mining-address"
 }

@@ -122,7 +122,7 @@ class TestBlock(unittest.TestCase):
         b.addTransaction(t.hash())
 
     def test_text_from_json(self):
-        b = Block.from_json('{"transactionsRoot": null, "timestamp": 1710764231, "nonce": 907567,"prevHash": null}')
+        b = Block.from_json('{"transactionsRoot": null, "timestamp": 1710764231, "nonce": 907567,"prevHash": null, "transactions": []}')
         self.assertEqual(b.hash(), 'd416380da97a4aaa7dbba8749e4caf2f054c96a50d7c69c3f4ed5b2c3d99fb75')
 
     def test_text_from_tuple(self):
@@ -143,7 +143,6 @@ class TesstBlockChain(unittest.TestCase):
 
     @classmethod
     def tearDownClass(self) -> None:
-        self.b.closeConnection()
         os.remove(self.DB_NAME)
         os.remove(self.tampered_db_name_1)
         os.remove(self.tampered_db_name_2)
@@ -168,7 +167,6 @@ class TesstBlockChain(unittest.TestCase):
     def test_verify(self):
         b_prime = BlockChain(self.DB_NAME)
         # should verify without any problem
-        b_prime.closeConnection()
     
     def test_verify_tampered_db(self):
         con = sqlite3.connect(self.tampered_db_name_1)

@@ -1,7 +1,0 @@
-{
-    "node": "http://localhost:5050",
-    "blockchain_file": "bc.db",
-    "wallet_file": "user.wallet",
-    "frontend_host": "localhost",
-    "frontend_port": 6969
-}

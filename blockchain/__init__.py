@@ -244,12 +244,7 @@ class Block:
     @classmethod
     def from_json(self, json):
         data = loads(json)
-        b = Block()
-        b.transactionsRoot = data['transactionsRoot']
-        b.timestamp = data['timestamp']
-        b.nonce = data['nonce']
-        b.prevHash = data['prevHash']
-
+        b = Block().from_dict(data)
         return b
     
     @classmethod
@@ -296,62 +291,58 @@ class InvalidBlockTransaction(Exception):
             'Transaction ' + transaction.hash() + ' es not valid in block ' + block.hash()
         )
 
+class SQLDatabase:
+    def __init__(self, filename):
+        self.filename = filename
+    
+    def __enter__(self):
+        self.connection = sqlite3.connect(self.filename)
+        self.cursor = self.connection.cursor()
+        
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.connection.close()
+
 class BlockChain:
     def __init__(self, dbfilename, genesisBlock: Block = None, onlyHeaders=False):
         self.dbfilename = dbfilename
-        self.SQLsafeNested = False # prevents inner callings from closing the db for the main function
-        self.openConnection()
-        self.cur.executescript(SETUP)
-        self.closeConnection()
+        with SQLDatabase(self.dbfilename) as database:
+            database.cursor.executescript(SETUP)
+
         if not self.verify(genesisBlock):
             raise InvalidBlockchain
-    
-    def openConnection(self):
-        self.con = sqlite3.connect(self.dbfilename)
-        self.cur = self.con.cursor()
-    
-    def closeConnection(self):
-        self.con.close()
 
-    def SQLsafe(func):
-        def wrapper(self, *args):
-            self.openConnection()
-            with self.con:
-                res = func(self, *args)
-            self.closeConnection()
-            return res
-        return wrapper
-    
-    @SQLsafe
     def length(self):
-        self.cur.execute('''SELECT MAX(ROWID) FROM Block''')
-        return self.cur.fetchone()[0]
-    
-    @SQLsafe    
+        with SQLDatabase(self.dbfilename) as database:
+            database.cursor.execute('''SELECT MAX(ROWID) FROM Block''')
+            return database.cursor.fetchone()[0]
+
     def verify(self, genesisBlock: Block= None):
-        self.cur.execute('''SELECT * FROM Block ORDER BY ROWID''')
-        blocks = self.cur.fetchall()
+        with SQLDatabase(self.dbfilename) as database:
+            database.cursor.execute('''SELECT * FROM Block ORDER BY ROWID''')
+            blocks = database.cursor.fetchall()
 
-        if len(blocks) == 0:
-            b = genesisBlock if genesisBlock else Block()
-            self.cur.execute(
-                'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
-                b.to_tuple()
-            )
-            self.con.commit()
-        else:
-            for i in range(len(blocks)):
-                if i == 0:
-                    continue
-                current = Block.from_tuple(blocks[i])
-                last = Block.from_tuple(blocks[i-1])
+            if len(blocks) == 0:
+                b = genesisBlock if genesisBlock else Block()
+                database.cursor.execute(
+                    'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
+                    b.to_tuple()
+                )
+                database.connection.commit()
+            else:
+                for i in range(len(blocks)):
+                    if i == 0:
+                        continue
+                    current = Block.from_tuple(blocks[i])
+                    last = Block.from_tuple(blocks[i-1])
 
-                if current.hash() != blocks[i][-1]:
-                    return False
-                if last.hash() != blocks[i-1][-1]:
-                    return False
-                if not self.valid(last, current):
-                    return False
+                    if current.hash() != blocks[i][-1]:
+                        return False
+                    if last.hash() != blocks[i-1][-1]:
+                        return False
+                    if not self.valid(last, current):
+                        return False
         
         return True
 
@@ -368,7 +359,6 @@ class BlockChain:
             return False
         return True
     
-    @SQLsafe
     def insertNewBlock(self, newBlock: Block):
         if not self.valid(self.lastBlock(), newBlock):
             raise InvalidBlock(newBlock)
@@ -401,58 +391,57 @@ class BlockChain:
             if t.outputs[0]['amount'] > rew:
                 raise InvalidBlockTransaction(t, newBlock)
 
-        self.openConnection()
-        with self.con:
-            self.cur.execute(
+        with SQLDatabase(self.dbfilename) as database:
+            database.cursor.execute(
                 'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
                 newBlock.to_tuple()
             )
-        for t in newBlock.transactionsRaw:
-            t = Transaction.from_dict(t)
-            proof = newBlock.transactionsTree.proof(t.hash())
-            if not proof:
-                raise InvalidBlockTransaction(newBlock, t)
-            self.cur.execute(
-                'INSERT INTO TInBlock VALUES (?, ?)',
-                (t.hash(), newBlock.hash())
-            )
-            self.cur.execute(
-                'INSERT INTO TTransaction VALUES (?, ?, ?, ?)',
-                (t.timestamp, t.signature[0], t.signature[1], t.hash())
-            )
-            for inp in t.inputs_to_tuples():
-                self.cur.execute(
-                    'INSERT INTO TInput VALUES (?, ?)',
-                    inp
+        
+            for t in newBlock.transactionsRaw:
+                t = Transaction.from_dict(t)
+                proof = newBlock.transactionsTree.proof(t.hash())
+                if not proof:
+                    raise InvalidBlockTransaction(newBlock, t)
+                database.cursor.execute(
+                    'INSERT INTO TInBlock VALUES (?, ?)',
+                    (t.hash(), newBlock.hash())
                 )
-            for out in t.outputs_to_tuples():
-                self.cur.execute(
-                    'INSERT INTO TOutput VALUES (?, ?, ?, ?)',
-                    out
+                database.cursor.execute(
+                    'INSERT INTO TTransaction VALUES (?, ?, ?, ?)',
+                    (t.timestamp, t.signature[0], t.signature[1], t.hash())
                 )
-        self.con.commit()
+                for inp in t.inputs_to_tuples():
+                    database.cursor.execute(
+                        'INSERT INTO TInput VALUES (?, ?)',
+                        inp
+                    )
+                for out in t.outputs_to_tuples():
+                    database.cursor.execute(
+                        'INSERT INTO TOutput VALUES (?, ?, ?, ?)',
+                        out
+                    )
+            database.connection.commit()
     
-    @SQLsafe
     def get_utxos(self):
         utxos = {}
-        utxos_tuple = self.cur.execute('''
-        SELECT * FROM TOutput WHERE NOT EXISTS (SELECT * FROM TInput WHERE TInput.utxo_hash = TOutput.hash)
-        ''').fetchall()
+        with SQLDatabase(self.dbfilename) as database:
+            utxos_tuple = database.connection.execute('''
+            SELECT * FROM TOutput WHERE NOT EXISTS (SELECT * FROM TInput WHERE TInput.utxo_hash = TOutput.hash)
+            ''').fetchall()
         for i in utxos_tuple:
             utxos[i[0]] = {'transaction':i[1], 'amount':i[3], 'address':i[2]} # utxo_hash, tx_hash, utxo_address, utxo_quant
         return utxos
 
-    @SQLsafe
     def lastBlock(self):
         return self.getBlock(self.length()-1)
     
-    @SQLsafe
     def getBlock(self, height):
         height += 1
         try:
-            t_block = self.cur.execute('SELECT * FROM Block WHERE ROWID = (?)', (height, )).fetchall()[0]
-            block = Block.from_tuple(t_block)
-            block_transaction_hashes = self.cur.execute('SELECT * FROM TInBlock WHERE block_hash = (?)', (block.hash(), )).fetchall()
+            with SQLDatabase(self.dbfilename) as database:
+                t_block = database.cursor.execute('SELECT * FROM Block WHERE ROWID = (?)', (height, )).fetchall()[0]
+                block = Block.from_tuple(t_block)
+                block_transaction_hashes = database.cursor.execute('SELECT * FROM TInBlock WHERE block_hash = (?)', (block.hash(), )).fetchall()
             for (th, bh) in block_transaction_hashes:
                 trans = self.get_transaction(th)
                 block.addTransaction(trans)
@@ -460,13 +449,13 @@ class BlockChain:
             return None
 
         return block
-    
-    @SQLsafe
+
     def get_transaction(self, t_hash):
         try:
-            transaction_tuple = self.cur.execute('SELECT * FROM TTransaction WHERE hash = (?)', (t_hash, )).fetchall()[0]
-            inputs_tuple = self.cur.execute('SELECT * FROM TInput WHERE tx_hash = (?)', (t_hash,)).fetchall()
-            outputs_tuple = self.cur.execute('SELECT * FROM TOutput WHERE tx_hash = (?)', (t_hash,)).fetchall()
+            with SQLDatabase(self.dbfilename) as database:
+                transaction_tuple = database.cursor.execute('SELECT * FROM TTransaction WHERE hash = (?)', (t_hash, )).fetchall()[0]
+                inputs_tuple = database.cursor.execute('SELECT * FROM TInput WHERE tx_hash = (?)', (t_hash,)).fetchall()
+                outputs_tuple = database.cursor.execute('SELECT * FROM TOutput WHERE tx_hash = (?)', (t_hash,)).fetchall()
         except IndexError:
             return None
         
@@ -476,3 +465,29 @@ class BlockChain:
 
         return trans
     
+    def remove_last_block(self):
+        with SQLDatabase(self.dbfilename) as database:
+            block_hash = self.lastBlock().hash()
+            database.cursor.execute(
+                'DELETE * FROM Blocks WHERE hash = (?)',
+                block_hash
+            )
+            database.cursor.execute('''DELETE * FROM TTransaction WHERE EXISTS 
+                             (SELECT * FROM TInBlock WHERE transaction_hash = TTransaction.hash AND block_hash = (?) )''',
+                             block_hash)
+            database.cursor.execute('''DELETE * FROM TInput WHERE EXISTS 
+                             (SELECT * FROM TInBlock WHERE transaction_hash = TInput.tx_hash AND block_hash = (?) )''',
+                             block_hash)
+            database.cursor.execute('''DELETE * FROM TTransaction WHERE EXISTS 
+                             (SELECT * FROM TInBlock WHERE transaction_hash = TOutput.tx_hash AND block_hash = (?) )''',
+                             block_hash)
+            database.cursor.execute('DELETE * FROM TInBlock WHERE block_hash = (?)', block_hash)
+            database.connection.commit()
+    
+    def block_exists(self, block_hash):
+        try:
+            with SQLDatabase(self.dbfilename) as database:
+                t_block = database.cursor.execute('SELECT * FROM Block WHERE hash = (?)', (block_hash, )).fetchall()[0]
+                return True
+        except IndexError:
+            return False
