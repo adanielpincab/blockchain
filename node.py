@@ -62,7 +62,7 @@ class P2PNode(Node):
 
     def inbound_node_connected(self, connected_node):
         print("inbound_node_connected: " + connected_node.id)
-        self.send_to_nodes(Message('NEW_NODE', {'host':connected_node.host, 'port':int(connected_node.port)}).to_json())
+        self.send_to_nodes(Message('NEW_NODE', {'id':connected_node.id, 'host':connected_node.host, 'port':int(connected_node.port)}).to_json())
 
     def inbound_node_disconnected(self, connected_node):
         print("inbound_node_disconnected: " + connected_node.id)
@@ -86,12 +86,18 @@ class P2PNode(Node):
         # get chain from all connected nodes, checks if there's a better blockchain
 
         better = None 
-        self_dens = self.bc.length()/minutesPassed(self.bc.getBlock(0).timestamp)
+        try:
+            self_dens = self.bc.length()/minutesPassed(self.bc.getBlock(0).timestamp)
+        except ZeroDivisionError:
+            self_dens = 0
 
         for node in self.all_nodes:
             node_chain_data = self.ask(node, Message('CHAIN_INFO?'))
 
-            dens = node_chain_data['length']/minutesPassed(node_chain_data['started_in'])
+            try:
+                dens = node_chain_data['length']/minutesPassed(node_chain_data['started_in'])
+            except ZeroDivisionError:
+                dens = 0
 
             if self_dens > dens:
                 continue
@@ -137,8 +143,6 @@ class P2PNode(Node):
         logger.success('chain updated.')
 
     def node_message(self, connected_node, data):
-        # print(str(self.id) + " node_message from " + connected_node.id + ": " + str(data))
-
         msg = Message.from_dict(data)
 
         if msg.response_to:
@@ -147,7 +151,7 @@ class P2PNode(Node):
 
         if msg.code == 'NEW_NODE':
             node = msg.data
-            if (node['host'] == CONFIG['host']) and (int(node['port']) == int(CONFIG['port'])):
+            if (node['id'] == self.id):
                 return
             
             for n in self.all_nodes:
@@ -155,7 +159,7 @@ class P2PNode(Node):
                     return
 
             if self.connect_with_node(node['host'], node['port']):
-                self.send_to_nodes(Message('NEW_NODE', {'host':connected_node.host, 'port':int(connected_node.port)}).to_json())
+                self.send_to_nodes(Message('NEW_NODE', {'id': node['id'], 'host':connected_node.host, 'port':int(connected_node.port)}).to_json())
 
         elif msg.code == 'NEW_BLOCK':
             new_block = blockchain.Block.from_dict(msg.data)
@@ -180,7 +184,7 @@ class P2PNode(Node):
                 logger.error('Invalid block. ' + new_block.hash())
                 if new_block.prevHash != self.bc.lastBlock().hash():
                     logger.error('Block does not match current chain.')
-                    self.syncing_thread = self.sync_chain()
+                    self.sync_chain()
             except blockchain.InvalidBlockTransaction:
                 logger.error('Invalid transaction in block. ' + new_block.hash())
                 self.sync_chain()
@@ -249,25 +253,32 @@ class P2PNode(Node):
             last_block = self.bc.lastBlock()
             new_block = self.create_next_block()
 
-            logger.info('Waiting to mine.')
-            while not (time() - last_block.timestamp) > 30:
-                pass
+            if not (time() - last_block.timestamp) > 30:
+                waiting_time = 30 - int(time() - last_block.timestamp)
+                logger.info(f'Waiting for block to be mineable. ({waiting_time} seconds)')
+                sleep(waiting_time)
             
+            block_changed = False
             logger.info('Mining...')
-            while not blockchain.BlockChain.valid(last_block, new_block):
+            while (
+                (not blockchain.BlockChain.valid(last_block, new_block)) and
+                (not block_changed)
+                ):
                 new_block.nonce += 1
                 new_block.timestamp = int(time())
 
                 if last_block != self.bc.lastBlock():
                     last_block = self.bc.lastBlock()
                     new_block = self.create_next_block()
+                    block_changed = True
 
-            logger.success('New block mined.')
-
-            self.bc.insertNewBlock(new_block)
-
-            self.send_to_nodes(Message('NEW_BLOCK', new_block.to_dict()).to_json())
-            sleep(1)
+            if block_changed:
+                logger.info('Block changed. Re-starting miner.')                
+            else:
+                logger.success('New block mined.')
+                self.bc.insertNewBlock(new_block)
+                self.send_to_nodes(Message('NEW_BLOCK', new_block.to_dict()).to_json())
+                sleep(1)
 
     def node_disconnect_with_outbound_node(self, connected_node):
         print("node wants to disconnect with oher outbound node: " + connected_node.id)

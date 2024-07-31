@@ -255,6 +255,9 @@ class Block:
         b.nonce = db_tuple[2]
         b.prevHash = db_tuple[3]
         return b
+    
+    def __eq__(self, other: object) -> bool:
+        return (self.hash() == other.hash())
 
 '''
 DIFFICULTY OF THE BLOCKCHAIN.
