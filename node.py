@@ -188,6 +188,8 @@ class P2PNode(Node):
             except blockchain.InvalidBlockTransaction:
                 logger.error('Invalid transaction in block. ' + new_block.hash())
                 self.sync_chain()
+            
+            self.clean_transaction_pool()
 
         elif msg.code == 'NEW_TRANSACTION':
             new_transaction = blockchain.Transaction.from_dict(msg.data)
@@ -198,6 +200,7 @@ class P2PNode(Node):
             logger.info('New transaction received: ' + new_transaction.hash())
 
             if self.valid_transaction(new_transaction):
+                self.transaction_pool.append(new_transaction)
                 logger.success('New transaction added to the pool: ' + new_transaction.hash())
                 self.send_to_nodes(msg.to_json())
             else:
@@ -238,6 +241,7 @@ class P2PNode(Node):
         return (True, fee)
 
     def create_next_block(self):
+        self.clean_transaction_pool()
         last_block = self.bc.lastBlock()
         new_block = blockchain.Block(prevHash=last_block.hash())
         rew = blockchain.reward(node.bc.length()-1)
@@ -247,6 +251,13 @@ class P2PNode(Node):
         for t in self.transaction_pool:
             new_block.addTransaction(t)
         return new_block
+
+    def clean_transaction_pool(self):
+        valids = []
+        for transaction in self.transaction_pool:
+            if self.valid_transaction(transaction):
+                valids.append(transaction)
+        self.transaction_pool = valids 
 
     def mine(self):
         while True:
@@ -279,6 +290,8 @@ class P2PNode(Node):
                 self.bc.insertNewBlock(new_block)
                 self.send_to_nodes(Message('NEW_BLOCK', new_block.to_dict()).to_json())
                 sleep(1)
+            
+            self.clean_transaction_pool()
 
     def node_disconnect_with_outbound_node(self, connected_node):
         print("node wants to disconnect with oher outbound node: " + connected_node.id)
