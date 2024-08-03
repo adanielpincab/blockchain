@@ -15,10 +15,12 @@ class Transaction:
             outputs: list[dict]
         ):
         self.inputs = inputs # [utxo_hash 1, ... utxo_hash N]
+        for out in outputs:
+            out["amount"] = int(out["amount"])
         self.outputs = outputs # [ {"amount":amount, "address":address}, ... ]
-        self.timestamp = int(time())
+        self.timestamp = time()
         self.signature = [None, None] # [pub_key, signature]
-    
+
     def hash(self):
         return sha256(str(
             [
@@ -269,10 +271,7 @@ def difficulty(timeLast, timeNew):
         return inf
     return floor(500/ ((timeNew-timeLast) - 30) )
 
-'''
-DIFFICULTY OF THE BLOCKCHAIN.
-50 coins, halved every year.
-'''
+# REWARD: 50 coins, halved every year.
 def reward(height):
     return int(50000000/(2**(int(height/525960))))
 
@@ -305,6 +304,7 @@ class SQLDatabase:
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.connection.commit()
         self.connection.close()
 
 class BlockChain:
@@ -332,7 +332,6 @@ class BlockChain:
                     'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
                     b.to_tuple()
                 )
-                database.connection.commit()
             else:
                 for i in range(len(blocks)):
                     if i == 0:
@@ -423,7 +422,6 @@ class BlockChain:
                         'INSERT INTO TOutput VALUES (?, ?, ?, ?)',
                         out
                     )
-            database.connection.commit()
     
     def get_utxos(self):
         utxos = {}
@@ -485,7 +483,6 @@ class BlockChain:
                              (SELECT * FROM TInBlock WHERE transaction_hash = TOutput.tx_hash AND block_hash = (?) )''',
                              block_hash)
             database.cursor.execute('DELETE * FROM TInBlock WHERE block_hash = (?)', block_hash)
-            database.connection.commit()
     
     def block_exists(self, block_hash):
         try:

@@ -13,3 +13,4 @@ bc2.db
 bc.db
 *.wallet
 pruebas.py
+.log

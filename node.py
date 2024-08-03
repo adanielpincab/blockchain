@@ -199,7 +199,16 @@ class P2PNode(Node):
 
             logger.info('New transaction received: ' + new_transaction.hash())
 
-            if self.valid_transaction(new_transaction):
+            valid_transaction = True
+            # already spent output
+            for transaction in self.transaction_pool:
+                for i in new_transaction.inputs:
+                    if i in transaction.inputs:
+                        valid_transaction = False 
+            if not self.valid_transaction(new_transaction):
+                valid_transaction = False
+
+            if valid_transaction:
                 self.transaction_pool.append(new_transaction)
                 logger.success('New transaction added to the pool: ' + new_transaction.hash())
                 self.send_to_nodes(msg.to_json())
@@ -223,6 +232,7 @@ class P2PNode(Node):
             return False
 
         utxos = self.bc.get_utxos()
+        pending = self.transaction_pool
         fee = 0
 
         for i in transaction.inputs:
@@ -247,7 +257,8 @@ class P2PNode(Node):
         rew = blockchain.reward(node.bc.length()-1)
         for t in self.transaction_pool:
             rew += self.valid_transaction(t)[1]
-        new_block.addTransaction(blockchain.Transaction([], [{'address':CONFIG['mining_address'], 'amount':rew}]))
+        if rew > 0:
+            new_block.addTransaction(blockchain.Transaction([], [{'address':CONFIG['mining_address'], 'amount':rew}]))
         for t in self.transaction_pool:
             new_block.addTransaction(t)
         return new_block
@@ -270,10 +281,12 @@ class P2PNode(Node):
                 sleep(waiting_time)
             
             block_changed = False
+            new_transactions = False
             logger.info('Mining...')
             while (
                 (not blockchain.BlockChain.valid(last_block, new_block)) and
-                (not block_changed)
+                (not block_changed) and
+                (not new_transactions)
                 ):
                 new_block.nonce += 1
                 new_block.timestamp = int(time())
@@ -282,16 +295,21 @@ class P2PNode(Node):
                     last_block = self.bc.lastBlock()
                     new_block = self.create_next_block()
                     block_changed = True
+                if len(self.transaction_pool) > len(new_block.transactionsRaw):
+                    last_block = self.bc.lastBlock()
+                    new_block = self.create_next_block()
+                    new_transactions = True
 
             if block_changed:
                 logger.info('Block changed. Re-starting miner.')                
+            elif new_transactions:
+                logger.info('New transactions. Adding them to new block.')
             else:
                 logger.success('New block mined.')
                 self.bc.insertNewBlock(new_block)
                 self.send_to_nodes(Message('NEW_BLOCK', new_block.to_dict()).to_json())
                 sleep(1)
-            
-            self.clean_transaction_pool()
+                self.clean_transaction_pool()
 
     def node_disconnect_with_outbound_node(self, connected_node):
         print("node wants to disconnect with oher outbound node: " + connected_node.id)
