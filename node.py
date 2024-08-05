@@ -50,10 +50,10 @@ with open(CONFIG_FILE, 'r') as f:
     f.close()
 
 class P2PNode(Node):
-    def __init__(self, host, port, id=None, callback=None, max_connections=0):
+    def __init__(self, host, port, blockchain_file=CONFIG['blockchain_file'],id=None, callback=None, max_connections=0):
         super(P2PNode, self).__init__(host, port, id, callback, max_connections)
-
-        self.bc = blockchain.BlockChain(CONFIG['blockchain_file'])
+        self.blockchain_file = blockchain_file
+        self.bc = blockchain.BlockChain(self.blockchain_file)
         self.responses = {}
         self.transaction_pool = []
 
@@ -132,8 +132,8 @@ class P2PNode(Node):
             logger.info(f"Updating chain ({self.bc.length()}/{better['length']})")
             next_block = blockchain.Block.from_dict(self.ask(node, Message('BLOCK?', {'height': next_height})))
             if new_chain:
-                os.remove(CONFIG['blockchain_file'])
-                self.bc = blockchain.BlockChain(CONFIG['blockchain_file'], genesisBlock=next_block)
+                os.remove(self.blockchain_file)
+                self.bc = blockchain.BlockChain(self.blockchain_file, genesisBlock=next_block)
                 new_chain = False
             else:
                 self.bc.insertNewBlock(next_block)
@@ -254,7 +254,7 @@ class P2PNode(Node):
         self.clean_transaction_pool()
         last_block = self.bc.lastBlock()
         new_block = blockchain.Block(prevHash=last_block.hash())
-        rew = blockchain.reward(node.bc.length()-1)
+        rew = blockchain.reward(self.bc.length()-1)
         for t in self.transaction_pool:
             rew += self.valid_transaction(t)[1]
         if rew > 0:
@@ -316,11 +316,3 @@ class P2PNode(Node):
         
     def node_request_to_stop(self):
         print("node is requested to stop!")
-
-node = P2PNode(CONFIG['host'], int(CONFIG['port']))
-node.start()
-for host, port in CONFIG['nodes']:
-    node.connect_with_node(host, int(port))
-
-node.sync_chain()
-node.mine()
