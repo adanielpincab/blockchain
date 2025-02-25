@@ -1,0 +1,11 @@
+[project]
+name = "blockchain"
+version = "0.1.0"
+description = "blockchain python implementation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=44.0.1",
+    "loguru>=0.7.3",
+    "p2pnetwork>=1.2",
+]
