@@ -2,7 +2,7 @@ import crypto
 from time import time
 from hashlib import sha256
 from json import loads, dumps
-from math import floor, inf
+from math import floor, inf, ceil
 import sqlite3
 
 from blockchain.SQL_setup import SETUP
@@ -196,6 +196,7 @@ class Block:
         self.timestamp = int(time())
         self.nonce = 0
         self.prevHash = prevHash
+        self.difficulty = 1
 
     def addTransaction(self, transaction: Transaction):
         transaction_hash = transaction.hash()
@@ -208,7 +209,8 @@ class Block:
             self.transactionsRoot,
             self.timestamp,
             self.nonce,
-            self.prevHash
+            self.prevHash,
+            self.difficulty
         ]).encode()).hexdigest()
     
     def to_dict(self):
@@ -216,7 +218,8 @@ class Block:
             'transactions':self.transactionsRaw,
             'timestamp': self.timestamp,
             'nonce': self.nonce,
-            'prevHash': self.prevHash
+            'prevHash': self.prevHash,
+            'difficulty': self.difficulty
         }
     
     @staticmethod
@@ -225,6 +228,7 @@ class Block:
         b.timestamp = dct['timestamp']
         b.nonce = dct['nonce']
         b.prevHash = dct['prevHash']
+        b.difficulty = dct['difficulty']
 
         for td in dct['transactions']:
             b.addTransaction(Transaction.from_dict(td))
@@ -240,6 +244,7 @@ class Block:
             self.timestamp,
             self.nonce,
             self.prevHash,
+            self.difficulty,
             self.hash()
         )
 
@@ -256,20 +261,11 @@ class Block:
         b.timestamp = db_tuple[1]
         b.nonce = db_tuple[2]
         b.prevHash = db_tuple[3]
+        b.difficulty = db_tuple[4]
         return b
     
     def __eq__(self, other: object) -> bool:
         return (self.hash() == other.hash())
-
-'''
-DIFFICULTY OF THE BLOCKCHAIN.
-Automatically adapted depending on the last block's timestamp.
-The more time has passed, the easier the difficulty gets.
-'''
-def difficulty(timeLast, timeNew):
-    if (timeNew - timeLast) <= 30:
-        return inf
-    return floor(500/ ((timeNew-timeLast) - 30) )
 
 # REWARD: 50 coins, halved every year.
 def reward(height):
@@ -316,6 +312,35 @@ class BlockChain:
         if not self.verify(genesisBlock):
             raise InvalidBlockchain
 
+    def difficulty(self, height=None):
+        '''
+        DIFFICULTY OF THE BLOCKCHAIN.
+        Automatically adapted depending on the last 10 blocks speed.
+        Difficulty is adapted to mantain BLOCKS_PER_MINUTE
+        '''
+        BLOCKS_PER_MINUTE = 2
+        REFERENCE_BLOCKS = 5
+
+        if height and ( (height >= self.length()) or (height < 0) ):
+            raise IndexError("Height does not exist in current blockchain")
+
+        if not height:
+            height = self.length()-1
+
+        current_difficulty_average = 0
+        for i in range(max(0, height-REFERENCE_BLOCKS), height+1):
+            current_difficulty_average += self.getBlock(i).difficulty
+        current_difficulty_average /= REFERENCE_BLOCKS
+
+        if height < REFERENCE_BLOCKS:
+            return current_difficulty_average
+        
+        reference_block = self.getBlock(height-REFERENCE_BLOCKS)
+        time_passed = int(self.getBlock(height).timestamp - reference_block.timestamp)
+        expected_time = int(REFERENCE_BLOCKS*60/BLOCKS_PER_MINUTE)
+        
+        return int(current_difficulty_average * expected_time/time_passed)
+
     def length(self):
         with SQLDatabase(self.dbfilename) as database:
             database.cursor.execute('''SELECT MAX(ROWID) FROM Block''')
@@ -329,7 +354,7 @@ class BlockChain:
             if len(blocks) == 0:
                 b = genesisBlock if genesisBlock else Block()
                 database.cursor.execute(
-                    'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
+                    'INSERT INTO Block VALUES (?, ?, ?, ?, ?, ?)',
                     b.to_tuple()
                 )
             else:
@@ -354,15 +379,15 @@ class BlockChain:
             return False
         if newBlock.timestamp > int(time()):
             return False
-        dif = difficulty(lastBlock.timestamp, newBlock.timestamp)
-        if dif > 64:
-            return False
-        if newBlock.hash()[:dif] != '0'*dif:
+        if int(newBlock.hash(), 16) > (int('f'*64, 16)/newBlock.difficulty):
             return False
         return True
     
     def insertNewBlock(self, newBlock: Block):
         if not self.valid(self.lastBlock(), newBlock):
+            raise InvalidBlock(newBlock)
+
+        if self.difficulty() != newBlock.difficulty:
             raise InvalidBlock(newBlock)
 
         if newBlock.transactionsRaw != []:
@@ -395,7 +420,7 @@ class BlockChain:
 
         with SQLDatabase(self.dbfilename) as database:
             database.cursor.execute(
-                'INSERT INTO Block VALUES (?, ?, ?, ?, ?)',
+                'INSERT INTO Block VALUES (?, ?, ?, ?, ?, ?)',
                 newBlock.to_tuple()
             )
         
@@ -484,6 +509,19 @@ class BlockChain:
                              block_hash)
             database.cursor.execute('DELETE * FROM TInBlock WHERE block_hash = (?)', block_hash)
     
+    def get_all_transactions_for_address(self, address):
+        transactions = []
+        tx_hashes = set()
+        with SQLDatabase(self.dbfilename) as database:
+            outputs_tuple = database.cursor.execute('SELECT * FROM TOutput WHERE address = (?)', (address,)).fetchall()
+            for output in outputs_tuple:
+                tx_hashes.add(output[0]) # tx_hash
+        
+        for h in tx_hashes:
+            transactions.append(self.get_transaction(h))
+
+        return transactions
+    
     def block_exists(self, block_hash):
         try:
             with SQLDatabase(self.dbfilename) as database:
@@ -491,3 +529,8 @@ class BlockChain:
                 return True
         except IndexError:
             return False
+
+    def get_new_block_template(self):
+        new_block = Block(prevHash=self.lastBlock().hash())
+        new_block.difficulty = self.difficulty()
+        return new_block

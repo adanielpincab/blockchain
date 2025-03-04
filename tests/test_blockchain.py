@@ -122,12 +122,12 @@ class TestBlock(unittest.TestCase):
         b.addTransaction(t.hash())
 
     def test_text_from_json(self):
-        b = Block.from_json('{"transactionsRoot": null, "timestamp": 1710764231, "nonce": 907567,"prevHash": null, "transactions": []}')
-        self.assertEqual(b.hash(), 'd416380da97a4aaa7dbba8749e4caf2f054c96a50d7c69c3f4ed5b2c3d99fb75')
+        b = Block.from_json('{"transactionsRoot": null, "timestamp": 1741097478, "nonce": 0, "difficulty": 1, "prevHash": null, "transactions": []}')
+        self.assertEqual(b.hash(), 'c13320759c4851ccaec46faedd21e7648e0be9f406c50addbaa5604791308899')
 
     def test_text_from_tuple(self):
-        b = Block.from_tuple((None, 1710764231, 907567, None))
-        self.assertEqual(b.hash(), 'd416380da97a4aaa7dbba8749e4caf2f054c96a50d7c69c3f4ed5b2c3d99fb75')
+        b = Block.from_tuple((None, 1741097478, 0, None, 1))
+        self.assertEqual(b.hash(), 'c13320759c4851ccaec46faedd21e7648e0be9f406c50addbaa5604791308899')
 
 class TesstBlockChain(unittest.TestCase):
     @classmethod
@@ -148,7 +148,7 @@ class TesstBlockChain(unittest.TestCase):
         os.remove(self.tampered_db_name_2)
     
     def test_block_height(self):
-        self.assertEqual(self.b.length(), 2)
+        self.assertEqual(self.b.length(), 17)
     
     def test_insert_invalid_block(self):
         with self.assertRaises(InvalidBlock):
@@ -160,9 +160,15 @@ class TesstBlockChain(unittest.TestCase):
             self.b.insertNewBlock(Block('fakehash'))
 
     def test_insert_valid_block(self):
-        newBlock = Block.from_dict({'transactionsRoot': None, 'transactions':[], 'timestamp': 1717778304, 'nonce': 148689, 'prevHash': '00014561cde46ddb44b954307abc235f28405348a21572eca490307cd755e7be'})
+        newBlock = Block.from_tuple((
+            "10016455e9bde5091bf5a27043a05acbd6118a37dbcdaecf4152bbfecd9579dc",
+            1741097803,
+            534,
+            "0008ba8b2cb91dec5787518e0ea8a1259b45de2cd7192553a7d05830ef0c0d1d",
+            1527
+        ))
         self.b.insertNewBlock(newBlock)
-        self.assertEqual(self.b.length(), 3)
+        self.assertEqual(self.b.length(), 18)
     
     def test_verify(self):
         b_prime = BlockChain(self.DB_NAME)

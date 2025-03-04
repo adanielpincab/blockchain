@@ -1,11 +1,13 @@
-from p2pnetwork.node import Node
 from uuid import uuid4
-from json import loads, dumps
-import blockchain
+from json import dumps, loads
+from time import sleep, time
+from p2pnetwork.node import Node
 from loguru import logger
-from time import time, sleep
-from sys import argv
+import blockchain
 import os
+
+def minutesPassed(start):
+    return int((time() - start)/60)
 
 class Message:
     def __init__(self, code, data={}):
@@ -37,25 +39,14 @@ class Message:
         res.response_to = self.id
         return res
 
-def minutesPassed(start):
-    return int((time() - start)/60)
+class BlockchainNode(Node):
+    def __init__(self, host, port, id=None, callback=None, max_connections=0, blockchain_file=None):
+        super(BlockchainNode, self).__init__(host, port, id, callback, max_connections)
 
-if len(argv) > 1:
-    CONFIG_FILE = argv[1]
-else:
-    CONFIG_FILE = 'nodeconfig.json'
- 
-with open(CONFIG_FILE, 'r') as f:
-    CONFIG = loads(f.read())
-    f.close()
-
-class P2PNode(Node):
-    def __init__(self, host, port, id=None, callback=None, max_connections=0):
-        super(P2PNode, self).__init__(host, port, id, callback, max_connections)
-
-        self.bc = blockchain.BlockChain(CONFIG['blockchain_file'])
+        self.bc = blockchain.BlockChain(blockchain_file)
         self.responses = {}
         self.transaction_pool = []
+        self.blockchain_file = blockchain_file
 
     def outbound_node_connected(self, connected_node):
         print("outbound_node_connected: " + connected_node.id)
@@ -85,30 +76,18 @@ class P2PNode(Node):
     def sync_chain(self):
         # get chain from all connected nodes, checks if there's a better blockchain
 
-        better = None 
-        try:
-            self_dens = self.bc.length()/minutesPassed(self.bc.getBlock(0).timestamp)
-        except ZeroDivisionError:
-            self_dens = 0
-
+        better = None
         for node in self.all_nodes:
             node_chain_data = self.ask(node, Message('CHAIN_INFO?'))
 
-            try:
-                dens = node_chain_data['length']/minutesPassed(node_chain_data['started_in'])
-            except ZeroDivisionError:
-                dens = 0
-
-            if self_dens > dens:
+            if self.bc.length() > node_chain_data['length']:
                 continue
 
             if better == None:
                 node_chain_data['node'] = node
-                node_chain_data['dens'] = dens
                 better = node_chain_data
-            elif (dens > better['dens']):
+            elif (node_chain_data['length'] > better['length']):
                 node_chain_data['node'] = node
-                node_chain_data['dens'] = dens
                 better = node_chain_data
 
         if not better:
@@ -132,8 +111,8 @@ class P2PNode(Node):
             logger.info(f"Updating chain ({self.bc.length()}/{better['length']})")
             next_block = blockchain.Block.from_dict(self.ask(node, Message('BLOCK?', {'height': next_height})))
             if new_chain:
-                os.remove(CONFIG['blockchain_file'])
-                self.bc = blockchain.BlockChain(CONFIG['blockchain_file'], genesisBlock=next_block)
+                os.remove(self.blockchain_file)
+                self.bc = blockchain.BlockChain(self.blockchain_file, genesisBlock=next_block)
                 new_chain = False
             else:
                 self.bc.insertNewBlock(next_block)
@@ -193,11 +172,9 @@ class P2PNode(Node):
 
         elif msg.code == 'NEW_TRANSACTION':
             new_transaction = blockchain.Transaction.from_dict(msg.data)
-
+            
             if new_transaction in self.transaction_pool:
                 return
-
-            logger.info('New transaction received: ' + new_transaction.hash())
 
             valid_transaction = True
             # already spent output
@@ -205,18 +182,18 @@ class P2PNode(Node):
                 for i in new_transaction.inputs:
                     if i in transaction.inputs:
                         valid_transaction = False 
+
             if not self.valid_transaction(new_transaction):
                 valid_transaction = False
-
-            if valid_transaction:
-                self.transaction_pool.append(new_transaction)
-                logger.success('New transaction added to the pool: ' + new_transaction.hash())
-                self.send_to_nodes(msg.to_json())
-            else:
-                logger.error('Invalid transaction: ' + new_transaction.hash())
+                logger.error('Invalid transaction received: ' + new_transaction.hash())
+                return
+            
+            logger.info('New valid transaction received: ' + new_transaction.hash())
+            
+            self.new_transaction(transaction)
         
         elif msg.code == 'CHAIN_INFO?':
-            res = msg.response('CHAIN_INFO', {'started_in': self.bc.getBlock(0).timestamp, 'length': self.bc.length(), 'genesis':self.bc.getBlock(0).hash()})
+            res = msg.response('CHAIN_INFO', {'length': self.bc.length(), 'genesis':self.bc.getBlock(0).hash()})
             self.send_to_node(connected_node, res.to_json())
 
         elif msg.code == 'HAVE_THIS_BLOCK_HASH?':
@@ -225,6 +202,11 @@ class P2PNode(Node):
         elif msg.code == 'BLOCK?':
             self.send_to_node(connected_node, msg.response('BLOCK', self.bc.getBlock(msg.data['height']).to_dict()).to_json())
     
+    def new_transaction(self, new_transaction: blockchain.Transaction):
+        self.transaction_pool.append(new_transaction)
+        logger.success('New transaction added to the pool: ' + new_transaction.hash())
+        self.send_to_nodes(msg.to_json())
+
     def valid_transaction(self, transaction: blockchain.Transaction):
         '''Returns Fee in case of valid'''
 
@@ -232,7 +214,6 @@ class P2PNode(Node):
             return False
 
         utxos = self.bc.get_utxos()
-        pending = self.transaction_pool
         fee = 0
 
         for i in transaction.inputs:
@@ -250,19 +231,6 @@ class P2PNode(Node):
         
         return (True, fee)
 
-    def create_next_block(self):
-        self.clean_transaction_pool()
-        last_block = self.bc.lastBlock()
-        new_block = blockchain.Block(prevHash=last_block.hash())
-        rew = blockchain.reward(node.bc.length()-1)
-        for t in self.transaction_pool:
-            rew += self.valid_transaction(t)[1]
-        if rew > 0:
-            new_block.addTransaction(blockchain.Transaction([], [{'address':CONFIG['mining_address'], 'amount':rew}]))
-        for t in self.transaction_pool:
-            new_block.addTransaction(t)
-        return new_block
-
     def clean_transaction_pool(self):
         valids = []
         for transaction in self.transaction_pool:
@@ -270,57 +238,8 @@ class P2PNode(Node):
                 valids.append(transaction)
         self.transaction_pool = valids 
 
-    def mine(self):
-        while True:
-            last_block = self.bc.lastBlock()
-            new_block = self.create_next_block()
-
-            if not (time() - last_block.timestamp) > 30:
-                waiting_time = 30 - int(time() - last_block.timestamp)
-                logger.info(f'Waiting for block to be mineable. ({waiting_time} seconds)')
-                sleep(waiting_time)
-            
-            block_changed = False
-            new_transactions = False
-            logger.info('Mining...')
-            while (
-                (not blockchain.BlockChain.valid(last_block, new_block)) and
-                (not block_changed) and
-                (not new_transactions)
-                ):
-                new_block.nonce += 1
-                new_block.timestamp = int(time())
-
-                if last_block != self.bc.lastBlock():
-                    last_block = self.bc.lastBlock()
-                    new_block = self.create_next_block()
-                    block_changed = True
-                if len(self.transaction_pool) > len(new_block.transactionsRaw):
-                    last_block = self.bc.lastBlock()
-                    new_block = self.create_next_block()
-                    new_transactions = True
-
-            if block_changed:
-                logger.info('Block changed. Re-starting miner.')                
-            elif new_transactions:
-                logger.info('New transactions. Adding them to new block.')
-            else:
-                logger.success('New block mined.')
-                self.bc.insertNewBlock(new_block)
-                self.send_to_nodes(Message('NEW_BLOCK', new_block.to_dict()).to_json())
-                sleep(1)
-                self.clean_transaction_pool()
-
-    def node_disconnect_with_outbound_node(self, connected_node):
-        print("node wants to disconnect with oher outbound node: " + connected_node.id)
+    def node_disconnect_with_outbound_node(self, node):
+        print("node wants to disconnect with oher outbound node: " + node.id)
         
     def node_request_to_stop(self):
         print("node is requested to stop!")
-
-node = P2PNode(CONFIG['host'], int(CONFIG['port']))
-node.start()
-for host, port in CONFIG['nodes']:
-    node.connect_with_node(host, int(port))
-
-node.sync_chain()
-node.mine()

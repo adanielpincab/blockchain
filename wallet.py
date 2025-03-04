@@ -1,153 +1,143 @@
-from sys import argv
-from blockchain import Address, BlockChain, Transaction
-from crypto import private_to_pem_file, private_from_pem_file
-from getpass import getpass
 from p2pnetwork.node import Node
 from uuid import uuid4
-from json import dumps, loads
+from json import loads, dumps
+import blockchain
+from loguru import logger
+from time import time, sleep
+from sys import argv
+import os
+from cryptography.fernet import Fernet
+from crypto import generate_key_pair, sign, verify, pem_bytes_to_private, private_to_pem_bytes
+from flask import Flask, request, jsonify, render_template
+from flask_socketio import SocketIO, emit
 
-HOST, PORT = ('localhost', 8888)
-db_filename = 'bc1.db'
-blockchain = BlockChain(db_filename)
-BROADCAST_NODE = ('localhost', 8081)
+from blockchain.network import BlockchainNode, Message
 
-if len(argv) > 2:
-    print('Error. This script only accepts one argument (wallet file)')
+if len(argv) > 1:
+    CONFIG_FILE = argv[1]
+else:
+    CONFIG_FILE = 'walletconfig.json'
+ 
+with open(CONFIG_FILE, 'r') as f:
+    CONFIG = loads(f.read())
+    f.close()
 
-class Message:
-    def __init__(self, code, data={}):
-        self.code = code
-        self.data = data
-        self.id = str(uuid4())
-        self.response_to = None
-    
-    def to_json(self):
-        return dumps(self.__dict__)
-    
-    @staticmethod
-    def from_json(_json):
-        new = Message('')
-        new.__dict__ = loads(_json)
-        return 
-    
-    @staticmethod
-    def from_dict(_dict):
-        new = Message('')
-        new.__dict__ = _dict
-        return new
-    
-    def __repr__(self) -> str:
-        return str(self.to_json())
-    
-    def response(self, code, data={}):
-        res = Message(code, data)
-        res.response_to = self.id
-        return res
-
-class App:
-    def __init__(self):
-        self.wallet = None
-        self.balance = 0
-        self.utxos = []
-
-    def load_wallet(self):
-        if len(argv) == 1:
-            print('No wallet file provided. Creating new wallet.')
-
-            self.wallet = Address()
-
-            filename = input('Enter the name of your new wallet:') + '.wallet'
-            password = getpass(prompt='Enter password for your new wallet:')
-            
-            private_to_pem_file(self.wallet.priv, filename, password)
-
-        else:
-            password = getpass(prompt='Enter your wallet password:')
-            self.wallet = Address(priv_key=private_from_pem_file(argv[1], password))
-
-    def display_balance(self):
-        self.balance = 0
-        self.utxos = []
-
-        for hash, data in self.blockchain.get_utxos().items():
-            if data['address'] == self.wallet.address:
-                self.balance += data['amount']
-                self.utxos.append({'hash':hash, 'amount':data['amount']})
-        print(f'BALANCE: {self.balance/1000000}')
-
-    def select(self):
-        selection = None
-        while not selection:
-            print("select your action:")
-            print("\t1. Send")
-            
-            selection = input('> ')
-            if not selection in ['1']:
-                print('Invalid number.')
-                selection = None
-        return selection
-
-    def send_to_address(self):
-        self.display_balance()
-        amount = None
-        while not amount:
-            try:
-                amount = float(input('Select amount to send: '))
-            except ValueError:
-                print('Not a valid number.')
-                amount = None
-            
-            amount *= 1000000
-            if (amount <= 0) or (amount > self.balance):
-                print('Not a valid amount. Check balance.')
-                amount = None
-        receiver = input('Enter address to send: ')
-
-        using_utxos = []
-        change = 0
-        outputs = [{'address': receiver, 'amount': amount}]
-
-        final_amount = amount
-        for utxo in self.utxos:
-            if utxo['amount'] <= amount:
-                amount -= utxo['amount']
-                using_utxos.append(utxo['hash'])
-            elif utxo['amount'] > amount:
-                change = utxo['amount'] - amount
-                using_utxos.append(utxo['hash'])
-                amount = 0
-            if amount == 0:
-                break
+class WalletNode(BlockchainNode):
+    def __init__(self, host, port, blockchain_file, name, password, ui_update_func):
+        super().__init__(host, port, blockchain_file=blockchain_file)
         
-        if change > 0:
-            outputs.append({'address': self.wallet.address, 'amount': change})
+        self.name = name
+        self.wallet_file = f'{name}.wallet'
+        self.address = None
 
-        transaction = Transaction(inputs=using_utxos, outputs=outputs)
-        transaction.signature = self.wallet.sign(transaction.hash())
-
-        print('SEND TO Address:', receiver, 'AMOUNT:', final_amount)
-        confirmation = input('CONFIRM? (Y/N)')
-
-        if confirmation.upper() in ['Y', 'YES']:
-            node = Node(HOST, PORT)
-            node.start()
-            node.connect_with_node(BROADCAST_NODE[0], BROADCAST_NODE[1])
-            node.send_to_nodes(Message('NEW_TRANSACTION', data=transaction.to_dict()).to_json())
-            node.stop()
-            print('Transaction sent for confirmation.')
+        if os.path.exists(self.wallet_file):
+            with open(self.wallet_file, 'rb') as f:
+                self.private_key_encrypted = f.read()
+            self.address = blockchain.Address(pem_bytes_to_private(self.private_key_encrypted, password))
         else:
-            print('Transaction cancelled.')
+            self.address = blockchain.Address()
+            with open(self.wallet_file, 'wb') as f:
+                f.write(private_to_pem_bytes(self.address.priv, password))
+                f.close()
+        self.ui_update_func = ui_update_func
+        self.update()
 
+    def node_message(self, connected_node, data):
+        super().node_message(connected_node, data)
 
-    def run(self):
-        self.blockchain = BlockChain(db_filename)
-        self.load_wallet()
-        print(self.wallet.address)
-        while True:
-            self.display_balance()
-            command = self.select()
-            if command == '1':
-                self.send_to_address()
+        if self.bc.lastBlock().hash() != self.block_last_update:
+            self.update()
+    
+    def its_mine(transaction: blockchain.Transaction):
+        for out in tx.ouputs:
+            if out['address'] == self.address.address:
+                return True
+        for utxo_hash in tx.inputs:
+            if id in self.utxos.keys():
+                return True
+        
+        return False
 
-app = App()
-app.run()
+    def new_transaction(self, new_transaction: blockchain.Transaction):
+        super().new_transaction(new_transaction)
+
+    def update(self):
+        self.utxos = {}
+        self.transactions = []
+        self.transactions_in_pool = set()
+        self.balance = 0
+        self.block_last_update = 0
+
+        for id, utxo in self.bc.get_utxos().items():
+            if utxo["address"] == self.address.address:
+                self.utxos[id] = utxo
+        
+        #confirmed transactions
+        self.transactions = self.bc.get_all_transactions_for_address(self.address.address)
+
+        # unconfirmed transactions
+        for tx in self.transaction_pool:
+            if self.its_mine(tx):
+                self.transactions_in_pool.add(tx)
+                for utxo_hash in tx.inputs:
+                    if id in self.utxos.keys():
+                        del self.utxos[id]
+        
+        for utxo in self.utxos.values():
+            self.balance += utxo['amount']
+
+        self.block_last_update = self.bc.lastBlock().hash()
+
+    def get_transactions(self):
+        return self.transactions
+    
+    def get_balance(self):
+        return self.balance
+    
+    def get_utxos(self):
+        return self.utxos
+
+NAME = "test"
+PASSWORD = "test"
+
+def ui_update():
+    if node:
+        socketio.emit('update', {'balance': node.balance, 'utxos': node.utxos, 'transactions': node.transactions, 'transactions_in_pool': node.transactions_in_pool})
+
+node = WalletNode(host=CONFIG['host'], port=int(CONFIG['port']), blockchain_file=CONFIG['blockchain_file'], name=NAME, password=PASSWORD, ui_update_func=ui_update)
+for host, port in CONFIG['nodes']:
+    node.connect_with_node(host, int(port))
+node.sync_chain()
+
+app = Flask(__name__)
+socketio = SocketIO(app,debug=True,cors_allowed_origins='*')
+
+@app.route('/transactions/total', methods=['get'])
+def transactions_total():
+    return jsonify({'total': len(node.get_transactions())})
+
+@app.route('/transactions/<start>/<end>', methods=['get'])
+def transactions(start, end):
+    return jsonify({'transactions': 
+    [ t.json() for t in node.get_transactions()[int(start):int(end)] ]})
+
+@app.route('/balance', methods=['get'])
+def balance():
+    return jsonify({'balance': node.get_balance()})
+
+@app.route('/utxos', methods=['get'])
+def utxos():
+    return jsonify({'utxos': node.get_utxos()})
+
+@socketio.on('message')
+def handle_message(data):
+    print('received message: ' + data)
+
+@app.route('/')
+@app.route('/index')
+@app.route('/home')
+def index():
+    return render_template('app.html')
+    
+node.start()
+app.run(host="localhost", port="9999")

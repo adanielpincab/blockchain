@@ -1,0 +1,9 @@
+{
+    "host":"localhost",
+    "port":8081,
+    "nodes":[
+        ["localhost", 8080]
+    ],
+    "blockchain_file": "bc1.db",
+    "wallet_file": "test.wallet"
+}

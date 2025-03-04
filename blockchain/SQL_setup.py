@@ -31,8 +31,9 @@ CREATE TABLE IF NOT EXISTS TInBlock (
 
 CREATE TABLE IF NOT EXISTS Block (
     transactions_root TEXT,
-    timestamp INTEGER, 
+    timestamp INTEGER,
     nonce INTEGER,
     prevhash TEXT,
+    difficulty INTEGER,
     hash TEXT PRIMARY KEY
 );"""

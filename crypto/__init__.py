@@ -15,32 +15,6 @@ def generate_key_pair():
     public_key = private_key.public_key()
     return private_key, public_key
 
-''' TODO: Si no hace falta se quita
-def encrypt(message, public_key):
-    return public_key.encrypt(
-        message,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-
-def decrypt(message_encrypted, private_key):
-    try:
-        message_decrypted = private_key.decrypt(
-            message_encrypted,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
-        return message_decrypted
-    except ValueError:
-        raise ValueError
-'''
-
 def sign(message, private_key):
     return private_key.sign(
         message,

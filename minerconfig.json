@@ -5,5 +5,5 @@
         ["localhost", 8081]
     ],
     "blockchain_file": "bc2.db",
-    "mining_address":"your-mining-address"
+    "mining_address":"85287f0af8cafebeb13a9e556872b92cb1d8a1b36c6b866f639c1327f5e761cc"
 }

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+" crossorigin="anonymous"></script>
+    <title>Wallet</title>
+</head>
+<body>
+    <h1>Welcome</h1>
+
+    <h2 id="balance">0</h2>
+
+    <h3>Last transactions</h3>
+    <div id="transactions">
+    </div>
+</body>
+<script>
+    const balanceShow = document.getElementById("balance")
+    const transactionsShow = document.getElementById("transactions")
+
+    let transactions = []
+    let utxos = []
+
+    async function getData(url) {
+        let response = await fetch(url)
+        let data = await response.json()
+        return data
+    }
+
+    async function update() {
+        console.log('Update triggered by Flask server')
+        balanceShow.innerText = await getData('/balance').balance
+        transactions = await getData('/transactions/total')
+        transactionsShow.innerHTML = transactions.map(t => `<p>${t}</p>`).join('')
+    }
+
+    const socket = io()
+    socket.on('update', update)
+</script>
+</html>
